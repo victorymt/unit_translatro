@@ -7,6 +7,7 @@ from unit_converter import (
     fen_from_multiplier,
     format_decimal,
     multiplier_from_fen,
+    token_cost_yuan,
 )
 
 
@@ -42,12 +43,21 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(format_decimal(Decimal("5.00000000")), "5")
         self.assertEqual(format_decimal(Decimal("0.0123456789")), "0.01234568")
 
+    def test_one_hundred_million_token_cost(self) -> None:
+        self.assertEqual(token_cost_yuan("5", "2"), Decimal("10"))
+        self.assertEqual(token_cost_yuan("3.5", "0.15"), Decimal("0.525"))
+
+    def test_custom_token_count(self) -> None:
+        self.assertEqual(token_cost_yuan("5", "2", "1000000"), Decimal("0.10"))
+
     def test_tui_state_mode_and_result(self) -> None:
         state = TuiState()
-        self.assertEqual(_result_for(state), ("5 分/刀", "0.05 元/刀", ""))
+        self.assertEqual(
+            _result_for(state), ("5 分/刀", "0.05 元/刀", "5 元", "")
+        )
         state.toggle_mode()
         self.assertEqual(state.value, "5")
-        self.assertEqual(_result_for(state), ("0.05x", "0.05 元/刀", ""))
+        self.assertEqual(_result_for(state), ("0.05x", "0.05 元/刀", "5 元", ""))
 
     def test_tui_numeric_editing_replaces_selected_value(self) -> None:
         state = TuiState()
@@ -58,6 +68,9 @@ class ConversionTests(unittest.TestCase):
         state.select_next_field()
         state.edit(ord("2"))
         self.assertEqual(state.ratio, "2")
+        state.select_next_field()
+        state.edit(ord("3"))
+        self.assertEqual(state.token_price, "3")
 
 
 if __name__ == "__main__":

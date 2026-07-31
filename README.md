@@ -8,7 +8,7 @@
 python3 unit_converter.py
 ```
 
-这是一个 `curses` 交互界面，支持两个方向的实时换算，并可以修改充值比例。默认按 `1 元 = 1 刀站内额度` 计算。
+这是一个 `curses` 交互界面，支持两个方向的实时换算，并可以修改充值比例和每百万 Token 的官方价格。默认按 `1 元 = 1 刀站内额度`、`1 刀/百万 Token` 计算。
 
 - `←` / `→` 或 `M`：切换换算方向
 - `Tab` / `↑` / `↓`：切换输入项
@@ -36,11 +36,20 @@ python3 unit_converter.py --fen 5
 python3 unit_converter.py --multiplier 0.12 --ratio 1.2
 ```
 
+指定模型的官方 Token 价格，例如每百万 Token 为 2 刀：
+
+```bash
+python3 unit_converter.py --fen 5 --token-price 2
+```
+
+输出中的 `1 亿 Token` 成本为 `10 元`。
+
 ## 换算口径
 
 ```text
 几分/刀 = 倍率 × 100 ÷ 每元获得的站内刀数
 倍率 = 几分/刀 × 每元获得的站内刀数 ÷ 100
+1 亿 Token 成本（元） = 几分/刀 × 官方价（刀/百万 Token）
 ```
 
 例如默认充值比例下，`0.05x` 等价于 `5 分/刀`，`3 分/刀` 等价于 `0.03x`。
