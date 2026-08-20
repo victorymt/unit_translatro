@@ -14,6 +14,15 @@ from typing import Sequence
 ONE_HUNDRED = Decimal("100")
 ONE_MILLION = Decimal("1000000")
 ONE_HUNDRED_MILLION = Decimal("100000000")
+SAMPLE_INPUT_TOKENS = Decimal("12730000")
+SAMPLE_OUTPUT_TOKENS = Decimal("381680")
+SAMPLE_CACHED_TOKENS = Decimal("157670000")
+SAMPLE_TOTAL_TOKENS = (
+    SAMPLE_INPUT_TOKENS + SAMPLE_OUTPUT_TOKENS + SAMPLE_CACHED_TOKENS
+)
+DEFAULT_INPUT_PRICE = Decimal("5")
+DEFAULT_OUTPUT_PRICE = Decimal("30")
+DEFAULT_CACHED_PRICE = Decimal("0.5")
 
 
 def _as_decimal(value: Decimal | int | float | str, name: str) -> Decimal:
@@ -62,15 +71,47 @@ def multiplier_from_fen(
 
 def token_cost_yuan(
     fen_per_dollar: Decimal | int | float | str,
-    official_price_per_million: Decimal | int | float | str,
+    official_price_per_million: Decimal | int | float | str = DEFAULT_INPUT_PRICE,
     token_count: Decimal | int | float | str = ONE_HUNDRED_MILLION,
+    *,
+    output_price_per_million: Decimal | int | float | str = DEFAULT_OUTPUT_PRICE,
+    cached_price_per_million: Decimal | int | float | str = DEFAULT_CACHED_PRICE,
 ) -> Decimal:
-    """Return the account cost in yuan for the requested number of tokens."""
+    """Return the account cost for tokens distributed like the usage sample."""
     fen_value = _non_negative(fen_per_dollar, "每刀价格")
-    official_price = _non_negative(official_price_per_million, "Token 官方价")
+    input_price = _non_negative(official_price_per_million, "输入 Token 官方价")
+    output_price = _non_negative(output_price_per_million, "输出 Token 官方价")
+    cached_price = _non_negative(cached_price_per_million, "缓存 Token 官方价")
     tokens = _non_negative(token_count, "Token 数量")
-    official_dollars = tokens / ONE_MILLION * official_price
+    scale = tokens / SAMPLE_TOTAL_TOKENS
+    official_dollars = (
+        SAMPLE_INPUT_TOKENS * scale * input_price
+        + SAMPLE_OUTPUT_TOKENS * scale * output_price
+        + SAMPLE_CACHED_TOKENS * scale * cached_price
+    ) / ONE_MILLION
     return official_dollars * fen_value / ONE_HUNDRED
+
+
+def fen_from_token_cost(
+    cost_yuan: Decimal | int | float | str,
+    official_price_per_million: Decimal | int | float | str = DEFAULT_INPUT_PRICE,
+    token_count: Decimal | int | float | str = ONE_HUNDRED_MILLION,
+    *,
+    output_price_per_million: Decimal | int | float | str = DEFAULT_OUTPUT_PRICE,
+    cached_price_per_million: Decimal | int | float | str = DEFAULT_CACHED_PRICE,
+) -> Decimal:
+    """Return fen per official dollar represented by a mixed-token cost."""
+    cost = _non_negative(cost_yuan, "Token 成本")
+    official_dollars = token_cost_yuan(
+        ONE_HUNDRED,
+        official_price_per_million,
+        token_count,
+        output_price_per_million=output_price_per_million,
+        cached_price_per_million=cached_price_per_million,
+    )
+    if official_dollars == 0:
+        raise ValueError("Token 官方价不能全部为 0")
+    return cost * ONE_HUNDRED / official_dollars
 
 
 def format_decimal(value: Decimal, max_places: int = 8) -> str:
@@ -87,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
     source = parser.add_mutually_exclusive_group()
     source.add_argument("-m", "--multiplier", help="中转站倍率，例如 0.05")
     source.add_argument("-f", "--fen", help="账号成本（分/刀），例如 5")
+    source.add_argument(
+        "-t",
+        "--token-cost",
+        help="1 亿混合 Token 的实付成本（元），例如 5",
+    )
     parser.add_argument(
         "-r",
         "--ratio",
@@ -96,8 +142,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-p",
         "--token-price",
-        default="1",
-        help="每百万 Token 的官方价格（刀），默认 1",
+        "--input-price",
+        dest="token_price",
+        default="5",
+        help="每百万输入 Token 的官方价格（刀），默认 5",
+    )
+    parser.add_argument(
+        "--output-price",
+        default="30",
+        help="每百万输出 Token 的官方价格（刀），默认 30",
+    )
+    parser.add_argument(
+        "--cache-price",
+        default="0.5",
+        help="每百万缓存 Token 的官方价格（刀），默认 0.5",
     )
     return parser
 
@@ -105,9 +163,23 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_cli(args: argparse.Namespace) -> int:
     try:
         ratio = _positive(args.ratio, "充值比例")
-        token_price = _non_negative(args.token_price, "Token 官方价")
+        input_price = _non_negative(args.token_price, "输入 Token 官方价")
+        output_price = _non_negative(args.output_price, "输出 Token 官方价")
+        cached_price = _non_negative(args.cache_price, "缓存 Token 官方价")
         ratio_text = format_decimal(ratio)
-        if args.multiplier is not None:
+        if args.token_cost is not None:
+            requested_cost = _non_negative(args.token_cost, "1 亿 Token 成本")
+            fen = fen_from_token_cost(
+                requested_cost,
+                input_price,
+                output_price_per_million=output_price,
+                cached_price_per_million=cached_price,
+            )
+            multiplier = multiplier_from_fen(fen, ratio)
+            print(f"1 亿混合 Token 实付: {format_decimal(requested_cost)} 元")
+            print(f"等价账号成本: {format_decimal(fen)} 分/刀")
+            print(f"等价倍率: {format_decimal(multiplier)}x")
+        elif args.multiplier is not None:
             multiplier = _non_negative(args.multiplier, "倍率")
             fen = fen_from_multiplier(multiplier, ratio)
             yuan = fen / ONE_HUNDRED
@@ -122,10 +194,18 @@ def _run_cli(args: argparse.Namespace) -> int:
             print(f"账号成本: {format_decimal(fen)} 分/刀")
             print(f"等价倍率: {format_decimal(multiplier)}x")
         print(f"充值比例: {ratio_text} 刀/元")
-        cost = token_cost_yuan(fen, token_price)
+        print("用量配比: 输入 12.73M / 输出 381.68K / 缓存 157.67M")
+        cost = token_cost_yuan(
+            fen,
+            input_price,
+            output_price_per_million=output_price,
+            cached_price_per_million=cached_price,
+        )
         print(
-            f"1 亿 Token: {format_decimal(cost)} 元 "
-            f"(官方价 {format_decimal(token_price)} 刀/百万 Token)"
+            f"1 亿混合 Token: {format_decimal(cost)} 元 "
+            f"(输入/输出/缓存单价 "
+            f"{format_decimal(input_price)}/{format_decimal(output_price)}/"
+            f"{format_decimal(cached_price)} 刀/百万 Token)"
         )
     except ValueError as exc:
         print(f"错误: {exc}")
@@ -138,22 +218,37 @@ class TuiState:
     mode: str = "multiplier"
     value: str = "0.05"
     ratio: str = "1"
-    token_price: str = "1"
+    token_price: str = "5"
+    output_price: str = "30"
+    cached_price: str = "0.5"
     active_field: int = 0
     replace_on_type: bool = True
 
-    def toggle_mode(self) -> None:
-        self.mode = "fen" if self.mode == "multiplier" else "multiplier"
-        self.value = "5" if self.mode == "fen" else "0.05"
+    def toggle_mode(self, direction: int = 1) -> None:
+        modes = ("multiplier", "fen", "token_cost")
+        defaults = ("0.05", "5", "5")
+        index = (modes.index(self.mode) + direction) % len(modes)
+        self.mode = modes[index]
+        self.value = defaults[index]
         self.active_field = 0
         self.replace_on_type = True
 
     def select_next_field(self) -> None:
-        self.active_field = (self.active_field + 1) % 3
+        self.active_field = (self.active_field + 1) % 5
+        self.replace_on_type = True
+
+    def select_previous_field(self) -> None:
+        self.active_field = (self.active_field - 1) % 5
         self.replace_on_type = True
 
     def edit(self, key: int) -> None:
-        field = ("value", "ratio", "token_price")[self.active_field]
+        field = (
+            "value",
+            "ratio",
+            "token_price",
+            "output_price",
+            "cached_price",
+        )[self.active_field]
         current = getattr(self, field)
         if key in (curses.KEY_BACKSPACE, 127, 8):
             setattr(self, field, "" if self.replace_on_type else current[:-1])
@@ -185,12 +280,32 @@ def _centered_x(width: int, text: str) -> int:
 
 
 def _result_for(state: TuiState) -> tuple[str, str, str, str]:
-    if not state.value or not state.ratio or not state.token_price:
+    if not all(
+        (
+            state.value,
+            state.ratio,
+            state.token_price,
+            state.output_price,
+            state.cached_price,
+        )
+    ):
         return "--", "", "", ""
     try:
         ratio = _positive(state.ratio, "充值比例")
-        token_price = _non_negative(state.token_price, "Token 官方价")
-        if state.mode == "multiplier":
+        input_price = _non_negative(state.token_price, "输入 Token 官方价")
+        output_price = _non_negative(state.output_price, "输出 Token 官方价")
+        cached_price = _non_negative(state.cached_price, "缓存 Token 官方价")
+        if state.mode == "token_cost":
+            requested_cost = _non_negative(state.value, "1 亿 Token 成本")
+            fen = fen_from_token_cost(
+                requested_cost,
+                input_price,
+                output_price_per_million=output_price,
+                cached_price_per_million=cached_price,
+            )
+            multiplier = multiplier_from_fen(fen, ratio)
+            primary = f"{format_decimal(multiplier)}x"
+        elif state.mode == "multiplier":
             multiplier = _non_negative(state.value, "倍率")
             fen = fen_from_multiplier(multiplier, ratio)
             primary = f"{format_decimal(fen)} 分/刀"
@@ -198,10 +313,20 @@ def _result_for(state: TuiState) -> tuple[str, str, str, str]:
             fen = _non_negative(state.value, "每刀价格")
             multiplier = multiplier_from_fen(fen, ratio)
             primary = f"{format_decimal(multiplier)}x"
-        hundred_million_cost = token_cost_yuan(fen, token_price)
+        hundred_million_cost = token_cost_yuan(
+            fen,
+            input_price,
+            output_price_per_million=output_price,
+            cached_price_per_million=cached_price,
+        )
+        secondary = (
+            f"{format_decimal(fen)} 分/刀"
+            if state.mode == "token_cost"
+            else f"{format_decimal(fen / ONE_HUNDRED)} 元/刀"
+        )
         return (
             primary,
-            f"{format_decimal(fen / ONE_HUNDRED)} 元/刀",
+            secondary,
             f"{format_decimal(hundred_million_cost)} 元",
             "",
         )
@@ -237,8 +362,8 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
     height, width = screen.getmaxyx()
     accent, success, error_color = _init_colors()
 
-    if height < 20 or width < 60:
-        message = "终端窗口至少需要 60 x 20"
+    if height < 26 or width < 60:
+        message = "终端窗口至少需要 60 x 26"
         _addstr(screen, height // 2, _centered_x(width, message), message, error_color)
         screen.refresh()
         return
@@ -248,12 +373,15 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
 
     title = "倍率换算器"
     _addstr(screen, 2, _centered_x(width, title), title, curses.A_BOLD | accent)
-    subtitle = "GPT 账号成本 / 中转站倍率"
+    subtitle = "GPT 账号成本 / 中转站倍率 / Token 预算"
     _addstr(screen, 4, _centered_x(width, subtitle), subtitle, curses.A_DIM)
 
-    forward = " 倍率 -> 几分/刀 "
-    reverse = " 几分/刀 -> 倍率 "
-    modes_width = _display_width(forward) + _display_width(reverse) + 3
+    forward = " 倍率->几分 "
+    reverse = " 几分->倍率 "
+    token_cost_mode = " 1亿成本->两者 "
+    modes_width = sum(
+        _display_width(mode) for mode in (forward, reverse, token_cost_mode)
+    ) + 6
     modes_left = (width - modes_width) // 2
     forward_attr = curses.A_REVERSE if state.mode == "multiplier" else curses.A_NORMAL
     reverse_attr = curses.A_REVERSE if state.mode == "fen" else curses.A_NORMAL
@@ -265,14 +393,28 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
         reverse,
         reverse_attr,
     )
+    token_cost_attr = (
+        curses.A_REVERSE if state.mode == "token_cost" else curses.A_NORMAL
+    )
+    _addstr(
+        screen,
+        6,
+        modes_left + _display_width(forward) + _display_width(reverse) + 6,
+        token_cost_mode,
+        token_cost_attr,
+    )
 
     try:
         screen.hline(8, left, curses.ACS_HLINE, panel_width)
     except curses.error:
         pass
 
-    label = "中转站倍率" if state.mode == "multiplier" else "账号成本"
-    unit = "x" if state.mode == "multiplier" else "分/刀"
+    field_options = {
+        "multiplier": ("中转站倍率", "x"),
+        "fen": ("账号成本", "分/刀"),
+        "token_cost": ("1 亿 Token 实付", "元"),
+    }
+    label, unit = field_options[state.mode]
     _addstr(screen, 10, left + 2, label)
     value_attr = curses.A_REVERSE | curses.A_BOLD if state.active_field == 0 else curses.A_BOLD
     value_field = f" {state.value or ' '} "
@@ -287,33 +429,41 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
     _addstr(screen, 12, field_x, ratio_field, ratio_attr)
     _addstr(screen, 12, field_x + _display_width(ratio_field) + 1, "刀额度")
 
-    token_price_label = "官方价/百万 Token"
-    _addstr(screen, 14, left + 2, token_price_label)
-    token_price_attr = (
-        curses.A_REVERSE | curses.A_BOLD
-        if state.active_field == 2
-        else curses.A_BOLD
+    price_fields = (
+        (14, "输入价/百万 Token", state.token_price),
+        (16, "输出价/百万 Token", state.output_price),
+        (18, "缓存价/百万 Token", state.cached_price),
     )
-    token_price_field = f" {state.token_price or ' '} "
-    _addstr(screen, 14, field_x, token_price_field, token_price_attr)
-    _addstr(
-        screen,
-        14,
-        field_x + _display_width(token_price_field) + 1,
-        "刀",
-    )
+    for index, (row, price_label, price) in enumerate(price_fields, start=2):
+        _addstr(screen, row, left + 2, price_label)
+        price_attr = (
+            curses.A_REVERSE | curses.A_BOLD
+            if state.active_field == index
+            else curses.A_BOLD
+        )
+        price_field = f" {price or ' '} "
+        _addstr(screen, row, field_x, price_field, price_attr)
+        _addstr(
+            screen,
+            row,
+            field_x + _display_width(price_field) + 1,
+            "刀",
+        )
+
+    mix = "配比: 输入 12.73M / 输出 381.68K / 缓存 157.67M"
+    _addstr(screen, 20, left + 2, mix, curses.A_DIM)
 
     result, secondary, hundred_million_cost, error = _result_for(state)
     result_label = "换算结果"
-    _addstr(screen, 16, left + 2, result_label, curses.A_DIM)
-    _addstr(screen, 16, field_x, result, curses.A_BOLD | success)
+    _addstr(screen, 22, left + 2, result_label, curses.A_DIM)
+    _addstr(screen, 22, field_x, result, curses.A_BOLD | success)
     if secondary:
-        _addstr(screen, 17, field_x, secondary, curses.A_DIM)
+        _addstr(screen, 23, field_x, secondary, curses.A_DIM)
     if hundred_million_cost:
-        _addstr(screen, 18, left + 2, "1 亿 Token", curses.A_DIM)
-        _addstr(screen, 18, field_x, hundred_million_cost, curses.A_BOLD | success)
+        _addstr(screen, 24, left + 2, "1 亿混合 Token", curses.A_DIM)
+        _addstr(screen, 24, field_x, hundred_million_cost, curses.A_BOLD | success)
     if error:
-        _addstr(screen, 18, left + 2, error, error_color)
+        _addstr(screen, 24, left + 2, error, error_color)
 
     screen.refresh()
 
@@ -328,9 +478,13 @@ def _curses_main(screen: curses.window) -> tuple[str, str, str] | None:
         key = screen.getch()
         if key in (ord("q"), ord("Q"), 27):
             return None
-        if key in (curses.KEY_LEFT, curses.KEY_RIGHT, ord("m"), ord("M")):
+        if key == curses.KEY_LEFT:
+            state.toggle_mode(-1)
+        elif key in (curses.KEY_RIGHT, ord("m"), ord("M")):
             state.toggle_mode()
-        elif key in (9, curses.KEY_UP, curses.KEY_DOWN):
+        elif key == curses.KEY_UP:
+            state.select_previous_field()
+        elif key in (9, curses.KEY_DOWN):
             state.select_next_field()
         elif key in (10, 13, curses.KEY_ENTER):
             result, secondary, hundred_million_cost, error = _result_for(state)
@@ -347,14 +501,16 @@ def launch_tui() -> int:
         print(f"换算结果: {primary}")
         if secondary:
             print(f"等价成本: {secondary}")
-        print(f"1 亿 Token: {hundred_million_cost}")
+        print(f"1 亿混合 Token: {hundred_million_cost}")
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.multiplier is not None or args.fen is not None:
+    if any(
+        value is not None for value in (args.multiplier, args.fen, args.token_cost)
+    ):
         return _run_cli(args)
     try:
         return launch_tui()
