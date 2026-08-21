@@ -8,6 +8,7 @@ from unittest.mock import patch
 from unit_converter import (
     TuiState,
     _curses_main,
+    _display_width,
     _draw_tui,
     _result_for,
     channel_cost_comparison,
@@ -212,16 +213,18 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(state.active_field, 5)
         self.assertTrue(state.replace_on_type)
 
-    def test_tui_draws_channel_comparison_at_minimum_size(self) -> None:
+    def test_tui_draws_channel_comparison_in_compact_and_full_layouts(self) -> None:
         class Screen:
-            def __init__(self) -> None:
+            def __init__(self, height: int, width: int) -> None:
+                self.height = height
+                self.width = width
                 self.text: list[tuple[int, int, str]] = []
 
             def erase(self) -> None:
                 pass
 
             def getmaxyx(self) -> tuple[int, int]:
-                return 34, 80
+                return self.height, self.width
 
             def hline(self, y: int, x: int, character: int, count: int) -> None:
                 pass
@@ -234,18 +237,39 @@ class ConversionTests(unittest.TestCase):
             def refresh(self) -> None:
                 pass
 
-        screen = Screen()
-        with (
-            patch("unit_converter._init_colors", return_value=(0, 0, 0)),
-            patch("unit_converter.curses.ACS_HLINE", 0, create=True),
-        ):
-            _draw_tui(screen, TuiState())
+        for height, width in ((22, 60), (34, 80)):
+            with self.subTest(height=height, width=width):
+                screen = Screen(height, width)
+                with (
+                    patch("unit_converter._init_colors", return_value=(0, 0, 0)),
+                    patch("unit_converter.curses.ACS_HLINE", 0, create=True),
+                ):
+                    _draw_tui(screen, TuiState())
 
-        rendered = "\n".join(text for _, _, text in screen.text)
-        self.assertIn("ChatGPT 中转", rendered)
-        self.assertIn("DeepSeek V4 Flash 谷", rendered)
-        self.assertIn("DeepSeek V4 Pro 峰", rendered)
-        self.assertTrue(all(0 <= y < 34 and 0 <= x < 80 for y, x, _ in screen.text))
+                rendered = "\n".join(text for _, _, text in screen.text)
+                self.assertIn("ChatGPT 中转", rendered)
+                self.assertIn("DeepSeek", rendered)
+                for y, x, text in screen.text:
+                    self.assertTrue(0 <= y < height, (y, x, text))
+                    self.assertTrue(0 <= x < width, (y, x, text))
+                    self.assertLess(
+                        x + _display_width(text), width, (y, x, text)
+                    )
+                for row in range(height):
+                    spans = sorted(
+                        (x, x + _display_width(text))
+                        for y, x, text in screen.text
+                        if y == row
+                    )
+                    self.assertTrue(
+                        all(
+                            end <= next_start
+                            for (_, end), (next_start, _) in zip(
+                                spans, spans[1:]
+                            )
+                        ),
+                        (row, spans),
+                    )
 
 
 if __name__ == "__main__":

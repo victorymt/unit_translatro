@@ -220,6 +220,25 @@ def _format_channel_cost(row: ChannelCost) -> str:
     )
 
 
+def _format_compact_channel_cost(row: ChannelCost) -> str:
+    names = {
+        "DeepSeek V4 Flash 谷": "DeepSeek Flash谷",
+        "DeepSeek V4 Flash 峰": "DeepSeek Flash峰",
+        "DeepSeek V4 Pro 谷": "DeepSeek Pro谷",
+        "DeepSeek V4 Pro 峰": "DeepSeek Pro峰",
+    }
+    name = names.get(row.name, row.name)
+    usd = "--" if row.usd is None else f"${format_decimal(row.usd, 4)}"
+    yuan = f"{format_decimal(row.yuan, 4)}元"
+    if row.usd is None:
+        relative = "基准"
+    elif row.relative_to_chatgpt is None:
+        relative = "--"
+    else:
+        relative = f"{format_decimal(row.relative_to_chatgpt, 4)}x"
+    return f"{_pad_display(name, 17)} {usd:>9} {yuan:>10} {relative:>9}"
+
+
 def _print_channel_comparison(rows: tuple[ChannelCost, ...]) -> None:
     print("1 亿混合 Token 渠道对比:")
     print(f"{_pad_display('渠道', 22)} {'USD':>12} {'CNY':>16} {'相对 ChatGPT':>12}")
@@ -491,19 +510,36 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
     height, width = screen.getmaxyx()
     accent, success, error_color = _init_colors()
 
-    if height < 34 or width < 80:
-        message = "终端窗口至少需要 80 x 34"
+    if height < 22 or width < 60:
+        message = "终端窗口至少需要 60 x 22"
         _addstr(screen, height // 2, _centered_x(width, message), message, error_color)
         screen.refresh()
         return
 
-    panel_width = min(76, width - 4)
+    compact = height < 34 or width < 80
+    panel_width = min(56 if compact else 76, width - 4)
     left = (width - panel_width) // 2
+    title_row = 0 if compact else 2
+    modes_row = 2 if compact else 6
+    divider_row = 3 if compact else 8
+    field_rows = (5, 6, 7, 8, 9, 10) if compact else (10, 12, 14, 16, 18, 20)
+    mix_row = 11 if compact else 22
+    result_row = 13 if compact else 24
+    cost_row = 14 if compact else 26
+    comparison_title_row = 16 if compact else 28
+    comparison_start_row = 17 if compact else 29
 
     title = "ChatGPT 中转 / DeepSeek 官方成本"
-    _addstr(screen, 2, _centered_x(width, title), title, curses.A_BOLD | accent)
-    subtitle = "同一用量配比下的渠道成本对比"
-    _addstr(screen, 4, _centered_x(width, subtitle), subtitle, curses.A_DIM)
+    _addstr(
+        screen,
+        title_row,
+        _centered_x(width, title),
+        title,
+        curses.A_BOLD | accent,
+    )
+    if not compact:
+        subtitle = "同一用量配比下的渠道成本对比"
+        _addstr(screen, 4, _centered_x(width, subtitle), subtitle, curses.A_DIM)
 
     forward = " 倍率->几分 "
     reverse = " 几分->倍率 "
@@ -514,10 +550,10 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
     modes_left = (width - modes_width) // 2
     forward_attr = curses.A_REVERSE if state.mode == "multiplier" else curses.A_NORMAL
     reverse_attr = curses.A_REVERSE if state.mode == "fen" else curses.A_NORMAL
-    _addstr(screen, 6, modes_left, forward, forward_attr)
+    _addstr(screen, modes_row, modes_left, forward, forward_attr)
     _addstr(
         screen,
-        6,
+        modes_row,
         modes_left + _display_width(forward) + 3,
         reverse,
         reverse_attr,
@@ -527,41 +563,51 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
     )
     _addstr(
         screen,
-        6,
+        modes_row,
         modes_left + _display_width(forward) + _display_width(reverse) + 6,
         token_cost_mode,
         token_cost_attr,
     )
 
     try:
-        screen.hline(8, left, curses.ACS_HLINE, panel_width)
+        screen.hline(divider_row, left, curses.ACS_HLINE, panel_width)
     except curses.error:
         pass
 
     field_options = {
         "multiplier": ("中转站倍率", "x"),
         "fen": ("账号成本", "分/刀"),
-        "token_cost": ("ChatGPT 1 亿实付", "元"),
+        "token_cost": ("GPT 1 亿实付" if compact else "ChatGPT 1 亿实付", "元"),
     }
     label, unit = field_options[state.mode]
-    _addstr(screen, 10, left + 2, label)
+    _addstr(screen, field_rows[0], left + 2, label)
     value_attr = curses.A_REVERSE | curses.A_BOLD if state.active_field == 0 else curses.A_BOLD
     value_field = f" {state.value or ' '} "
-    field_x = left + 27
-    _addstr(screen, 10, field_x, value_field, value_attr)
-    _addstr(screen, 10, field_x + _display_width(value_field) + 1, unit)
+    field_x = left + (24 if compact else 27)
+    _addstr(screen, field_rows[0], field_x, value_field, value_attr)
+    _addstr(
+        screen,
+        field_rows[0],
+        field_x + _display_width(value_field) + 1,
+        unit,
+    )
 
     ratio_label = "1 元充值获得"
-    _addstr(screen, 12, left + 2, ratio_label)
+    _addstr(screen, field_rows[1], left + 2, ratio_label)
     ratio_attr = curses.A_REVERSE | curses.A_BOLD if state.active_field == 1 else curses.A_BOLD
     ratio_field = f" {state.ratio or ' '} "
-    _addstr(screen, 12, field_x, ratio_field, ratio_attr)
-    _addstr(screen, 12, field_x + _display_width(ratio_field) + 1, "刀额度")
+    _addstr(screen, field_rows[1], field_x, ratio_field, ratio_attr)
+    _addstr(
+        screen,
+        field_rows[1],
+        field_x + _display_width(ratio_field) + 1,
+        "刀额度",
+    )
 
     price_fields = (
-        (14, "ChatGPT 输入价/百万", state.token_price),
-        (16, "ChatGPT 输出价/百万", state.output_price),
-        (18, "ChatGPT 缓存价/百万", state.cached_price),
+        (field_rows[2], "ChatGPT 输入价/百万", state.token_price),
+        (field_rows[3], "ChatGPT 输出价/百万", state.output_price),
+        (field_rows[4], "ChatGPT 缓存价/百万", state.cached_price),
     )
     for index, (row, price_label, price) in enumerate(price_fields, start=2):
         _addstr(screen, row, left + 2, price_label)
@@ -580,47 +626,80 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
         )
 
     exchange_label = "美元兑人民币汇率"
-    _addstr(screen, 20, left + 2, exchange_label)
+    _addstr(screen, field_rows[5], left + 2, exchange_label)
     exchange_attr = (
         curses.A_REVERSE | curses.A_BOLD
         if state.active_field == 5
         else curses.A_BOLD
     )
     exchange_field = f" {state.usd_cny_rate or ' '} "
-    _addstr(screen, 20, field_x, exchange_field, exchange_attr)
+    _addstr(screen, field_rows[5], field_x, exchange_field, exchange_attr)
     _addstr(
         screen,
-        20,
+        field_rows[5],
         field_x + _display_width(exchange_field) + 1,
         "元/USD",
     )
 
-    mix = "配比: 输入 12.73M / 输出 381.68K / 缓存 157.67M"
-    _addstr(screen, 22, left + 2, mix, curses.A_DIM)
+    mix = (
+        "配比: 入12.73M / 出381.68K / 缓存157.67M"
+        if compact
+        else "配比: 输入 12.73M / 输出 381.68K / 缓存 157.67M"
+    )
+    _addstr(screen, mix_row, left + 2, mix, curses.A_DIM)
 
     result, secondary, hundred_million_cost, comparison, error = _result_for(state)
     result_label = "换算结果"
-    _addstr(screen, 24, left + 2, result_label, curses.A_DIM)
-    _addstr(screen, 24, field_x, result, curses.A_BOLD | success)
-    if secondary:
-        _addstr(screen, 25, field_x, secondary, curses.A_DIM)
+    _addstr(screen, result_row, left + 2, result_label, curses.A_DIM)
+    if compact:
+        result_text = f"{result} / {secondary}" if secondary else result
+        _addstr(screen, result_row, left + 14, result_text, curses.A_BOLD | success)
+    else:
+        _addstr(screen, result_row, field_x, result, curses.A_BOLD | success)
+        if secondary:
+            _addstr(screen, result_row + 1, field_x, secondary, curses.A_DIM)
     if hundred_million_cost:
-        _addstr(screen, 26, left + 2, "ChatGPT 1 亿 Token", curses.A_DIM)
-        _addstr(screen, 26, field_x, hundred_million_cost, curses.A_BOLD | success)
+        cost_label = "GPT 1 亿 Token" if compact else "ChatGPT 1 亿 Token"
+        _addstr(screen, cost_row, left + 2, cost_label, curses.A_DIM)
+        _addstr(
+            screen,
+            cost_row,
+            left + (16 if compact else 27),
+            hundred_million_cost,
+            curses.A_BOLD | success,
+        )
     if comparison:
-        comparison_title = "1 亿混合 Token 渠道对比: USD / CNY / 相对 ChatGPT"
-        _addstr(screen, 28, left + 2, comparison_title, curses.A_DIM)
-        for row, channel_cost in enumerate(comparison, start=29):
-            attributes = curses.A_BOLD | success if row == 29 else curses.A_NORMAL
+        comparison_title = (
+            "1亿成本: USD / CNY / 相对GPT"
+            if compact
+            else "1 亿混合 Token 渠道对比: USD / CNY / 相对 ChatGPT"
+        )
+        _addstr(
+            screen,
+            comparison_title_row,
+            left + 2,
+            comparison_title,
+            curses.A_DIM,
+        )
+        for row, channel_cost in enumerate(comparison, start=comparison_start_row):
+            attributes = (
+                curses.A_BOLD | success
+                if row == comparison_start_row
+                else curses.A_NORMAL
+            )
             _addstr(
                 screen,
                 row,
                 left + 2,
-                _format_channel_cost(channel_cost),
+                (
+                    _format_compact_channel_cost(channel_cost)
+                    if compact
+                    else _format_channel_cost(channel_cost)
+                ),
                 attributes,
             )
     if error:
-        _addstr(screen, 26, left + 2, error, error_color)
+        _addstr(screen, cost_row, left + 2, error, error_color)
 
     screen.refresh()
 
