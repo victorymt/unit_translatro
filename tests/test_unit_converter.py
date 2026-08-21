@@ -1,15 +1,20 @@
 import curses
 import unittest
+from contextlib import redirect_stdout
 from decimal import Decimal
+from io import StringIO
 from unittest.mock import patch
 
 from unit_converter import (
     TuiState,
     _curses_main,
+    _draw_tui,
     _result_for,
+    channel_cost_comparison,
     fen_from_multiplier,
     fen_from_token_cost,
     format_decimal,
+    main,
     multiplier_from_fen,
     token_cost_yuan,
 )
@@ -80,24 +85,86 @@ class ConversionTests(unittest.TestCase):
         cost = token_cost_yuan("5", token_count="1000000")
         self.assertEqual(format_decimal(cost), "0.04506789")
 
+    def test_deepseek_official_cost_comparison(self) -> None:
+        rows = channel_cost_comparison(token_cost_yuan("5"), "7.2")
+        self.assertEqual(
+            [row.name for row in rows],
+            [
+                "ChatGPT 中转",
+                "DeepSeek V4 Flash 谷",
+                "DeepSeek V4 Flash 峰",
+                "DeepSeek V4 Pro 谷",
+                "DeepSeek V4 Pro 峰",
+            ],
+        )
+        self.assertEqual(
+            [format_decimal(row.usd) for row in rows[1:] if row.usd is not None],
+            ["2.43363269", "4.86726539", "7.39322063", "14.78644126"],
+        )
+        self.assertEqual(
+            [format_decimal(row.yuan) for row in rows[1:]],
+            ["17.5221554", "35.04431079", "53.23118854", "106.46237709"],
+        )
+        self.assertEqual(
+            [
+                format_decimal(row.relative_to_chatgpt)
+                for row in rows[1:]
+                if row.relative_to_chatgpt is not None
+            ],
+            ["3.88794668", "7.77589336", "11.8113336", "23.62266719"],
+        )
+
+    def test_deepseek_exchange_rate_and_zero_chatgpt_cost(self) -> None:
+        rows = channel_cost_comparison("0", "7")
+        self.assertEqual(format_decimal(rows[1].yuan), "17.03542886")
+        self.assertTrue(all(row.relative_to_chatgpt is None for row in rows[1:]))
+        with self.assertRaisesRegex(ValueError, "汇率必须大于 0"):
+            channel_cost_comparison("5", "0")
+
+    def test_cli_prints_channel_comparison(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["--multiplier", "0.05"])
+
+        self.assertEqual(exit_code, 0)
+        text = output.getvalue()
+        self.assertIn("ChatGPT 官方单价（输入/输出/缓存）: 5/30/0.5", text)
+        self.assertIn("DeepSeek 美元汇率: 7.2 元/USD", text)
+        self.assertIn("DeepSeek V4 Flash 谷", text)
+        self.assertIn("$2.43363269", text)
+        self.assertIn("3.88794668x", text)
+
+    def test_cli_rejects_invalid_exchange_rate(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["--fen", "5", "--usd-cny-rate", "0"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("美元兑人民币汇率必须大于 0", output.getvalue())
+
     def test_tui_state_mode_and_result(self) -> None:
         state = TuiState()
+        primary, secondary, cost, comparison, error = _result_for(state)
         self.assertEqual(
-            _result_for(state),
+            (primary, secondary, cost, error),
             ("5 分/刀", "0.05 元/刀", "4.50678902 元", ""),
         )
+        self.assertEqual(len(comparison), 5)
         state.toggle_mode()
         self.assertEqual(state.value, "5")
+        primary, secondary, cost, comparison, error = _result_for(state)
         self.assertEqual(
-            _result_for(state),
+            (primary, secondary, cost, error),
             ("0.05x", "0.05 元/刀", "4.50678902 元", ""),
         )
         state.toggle_mode()
         self.assertEqual(state.mode, "token_cost")
+        primary, secondary, cost, comparison, error = _result_for(state)
         self.assertEqual(
-            _result_for(state),
+            (primary, secondary, cost, error),
             ("0.05547187x", "5.54718668 分/刀", "5 元", ""),
         )
+        self.assertEqual(comparison[0].yuan, Decimal("5"))
 
     def test_tui_numeric_editing_replaces_selected_value(self) -> None:
         state = TuiState()
@@ -119,6 +186,9 @@ class ConversionTests(unittest.TestCase):
         state.edit(ord("."))
         state.edit(ord("2"))
         self.assertEqual(state.cached_price, "0.2")
+        state.select_next_field()
+        state.edit(ord("7"))
+        self.assertEqual(state.usd_cny_rate, "7")
 
     def test_tui_up_selects_previous_field(self) -> None:
         class Screen:
@@ -139,8 +209,43 @@ class ConversionTests(unittest.TestCase):
         ):
             _curses_main(Screen())
 
-        self.assertEqual(state.active_field, 4)
+        self.assertEqual(state.active_field, 5)
         self.assertTrue(state.replace_on_type)
+
+    def test_tui_draws_channel_comparison_at_minimum_size(self) -> None:
+        class Screen:
+            def __init__(self) -> None:
+                self.text: list[tuple[int, int, str]] = []
+
+            def erase(self) -> None:
+                pass
+
+            def getmaxyx(self) -> tuple[int, int]:
+                return 34, 80
+
+            def hline(self, y: int, x: int, character: int, count: int) -> None:
+                pass
+
+            def addnstr(
+                self, y: int, x: int, text: str, count: int, attributes: int
+            ) -> None:
+                self.text.append((y, x, text[:count]))
+
+            def refresh(self) -> None:
+                pass
+
+        screen = Screen()
+        with (
+            patch("unit_converter._init_colors", return_value=(0, 0, 0)),
+            patch("unit_converter.curses.ACS_HLINE", 0, create=True),
+        ):
+            _draw_tui(screen, TuiState())
+
+        rendered = "\n".join(text for _, _, text in screen.text)
+        self.assertIn("ChatGPT 中转", rendered)
+        self.assertIn("DeepSeek V4 Flash 谷", rendered)
+        self.assertIn("DeepSeek V4 Pro 峰", rendered)
+        self.assertTrue(all(0 <= y < 34 and 0 <= x < 80 for y, x, _ in screen.text))
 
 
 if __name__ == "__main__":
