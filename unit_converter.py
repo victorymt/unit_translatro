@@ -205,7 +205,7 @@ def format_decimal(value: Decimal, max_places: int = 8) -> str:
     return format(rounded, "f").rstrip("0").rstrip(".") or "0"
 
 
-def _format_channel_cost(row: ChannelCost) -> str:
+def _format_channel_cost(row: ChannelCost, total_width: int | None = None) -> str:
     usd = "--" if row.usd is None else f"${format_decimal(row.usd)}"
     yuan = f"{format_decimal(row.yuan)} 元"
     if row.usd is None:
@@ -214,13 +214,19 @@ def _format_channel_cost(row: ChannelCost) -> str:
         relative = "--"
     else:
         relative = f"{format_decimal(row.relative_to_chatgpt)}x"
+    name_width = max(
+        22,
+        (total_width - 43) if total_width is not None else 22,
+    )
     return (
-        f"{_pad_display(row.name, 22)} "
+        f"{_pad_display(row.name, name_width)} "
         f"{usd:>12} {yuan:>16} {relative:>12}"
     )
 
 
-def _format_compact_channel_cost(row: ChannelCost) -> str:
+def _format_compact_channel_cost(
+    row: ChannelCost, total_width: int | None = None
+) -> str:
     names = {
         "DeepSeek V4 Flash 谷": "DeepSeek Flash谷",
         "DeepSeek V4 Flash 峰": "DeepSeek Flash峰",
@@ -236,7 +242,11 @@ def _format_compact_channel_cost(row: ChannelCost) -> str:
         relative = "--"
     else:
         relative = f"{format_decimal(row.relative_to_chatgpt, 4)}x"
-    return f"{_pad_display(name, 17)} {usd:>9} {yuan:>10} {relative:>9}"
+    name_width = max(
+        17,
+        (total_width - 31) if total_width is not None else 17,
+    )
+    return f"{_pad_display(name, name_width)} {usd:>9} {yuan:>10} {relative:>9}"
 
 
 def _print_channel_comparison(rows: tuple[ChannelCost, ...]) -> None:
@@ -517,17 +527,21 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
         return
 
     compact = height < 34 or width < 80
-    panel_width = min(56 if compact else 76, width - 4)
+    panel_width = width - 4
     left = (width - panel_width) // 2
-    title_row = 0 if compact else 2
-    modes_row = 2 if compact else 6
-    divider_row = 3 if compact else 8
-    field_rows = (5, 6, 7, 8, 9, 10) if compact else (10, 12, 14, 16, 18, 20)
-    mix_row = 11 if compact else 22
-    result_row = 13 if compact else 24
-    cost_row = 14 if compact else 26
-    comparison_title_row = 16 if compact else 28
-    comparison_start_row = 17 if compact else 29
+    top = max(0, (height - (22 if compact else 34)) // 2)
+    title_row = top + (0 if compact else 2)
+    modes_row = top + (2 if compact else 6)
+    divider_row = top + (3 if compact else 8)
+    field_rows = tuple(
+        top + row
+        for row in ((5, 6, 7, 8, 9, 10) if compact else (10, 12, 14, 16, 18, 20))
+    )
+    mix_row = top + (11 if compact else 22)
+    result_row = top + (13 if compact else 24)
+    cost_row = top + (14 if compact else 26)
+    comparison_title_row = top + (16 if compact else 28)
+    comparison_start_row = top + (17 if compact else 29)
 
     title = "ChatGPT 中转 / DeepSeek 官方成本"
     _addstr(
@@ -583,7 +597,7 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
     _addstr(screen, field_rows[0], left + 2, label)
     value_attr = curses.A_REVERSE | curses.A_BOLD if state.active_field == 0 else curses.A_BOLD
     value_field = f" {state.value or ' '} "
-    field_x = left + (24 if compact else 27)
+    field_x = left + max(24 if compact else 27, panel_width // 2)
     _addstr(screen, field_rows[0], field_x, value_field, value_attr)
     _addstr(
         screen,
@@ -681,6 +695,7 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
             comparison_title,
             curses.A_DIM,
         )
+        comparison_width = panel_width - 4
         for row, channel_cost in enumerate(comparison, start=comparison_start_row):
             attributes = (
                 curses.A_BOLD | success
@@ -692,9 +707,9 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
                 row,
                 left + 2,
                 (
-                    _format_compact_channel_cost(channel_cost)
+                    _format_compact_channel_cost(channel_cost, comparison_width)
                     if compact
-                    else _format_channel_cost(channel_cost)
+                    else _format_channel_cost(channel_cost, comparison_width)
                 ),
                 attributes,
             )

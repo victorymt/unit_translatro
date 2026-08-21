@@ -218,6 +218,7 @@ class ConversionTests(unittest.TestCase):
             def __init__(self, height: int, width: int) -> None:
                 self.height = height
                 self.width = width
+                self.lines: list[tuple[int, int, int]] = []
                 self.text: list[tuple[int, int, str]] = []
 
             def erase(self) -> None:
@@ -227,7 +228,7 @@ class ConversionTests(unittest.TestCase):
                 return self.height, self.width
 
             def hline(self, y: int, x: int, character: int, count: int) -> None:
-                pass
+                self.lines.append((y, x, count))
 
             def addnstr(
                 self, y: int, x: int, text: str, count: int, attributes: int
@@ -237,7 +238,7 @@ class ConversionTests(unittest.TestCase):
             def refresh(self) -> None:
                 pass
 
-        for height, width in ((22, 60), (34, 80)):
+        for height, width in ((22, 60), (34, 80), (40, 100)):
             with self.subTest(height=height, width=width):
                 screen = Screen(height, width)
                 with (
@@ -249,6 +250,7 @@ class ConversionTests(unittest.TestCase):
                 rendered = "\n".join(text for _, _, text in screen.text)
                 self.assertIn("ChatGPT 中转", rendered)
                 self.assertIn("DeepSeek", rendered)
+                self.assertEqual(screen.lines, [(screen.lines[0][0], 2, width - 4)])
                 for y, x, text in screen.text:
                     self.assertTrue(0 <= y < height, (y, x, text))
                     self.assertTrue(0 <= x < width, (y, x, text))
