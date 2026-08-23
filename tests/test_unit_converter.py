@@ -129,8 +129,10 @@ class ConversionTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         text = output.getvalue()
+        self.assertIn("换算口径: 固定中转站倍率", text)
         self.assertIn("ChatGPT 官方单价（输入/输出/缓存）: 5/30/0.5", text)
         self.assertIn("DeepSeek 美元汇率: 7.2 元/USD", text)
+        self.assertIn("相对成本倍数", text)
         self.assertIn("DeepSeek V4 Flash 谷", text)
         self.assertIn("$2.43363269", text)
         self.assertIn("3.88794668x", text)
@@ -166,6 +168,34 @@ class ConversionTests(unittest.TestCase):
             ("0.05547187x", "5.54718668 分/刀", "5 元", ""),
         )
         self.assertEqual(comparison[0].yuan, Decimal("5"))
+
+    def test_multiplier_mode_keeps_multiplier_when_official_prices_change(self) -> None:
+        state = TuiState()
+        state.token_price = "10"
+        state.output_price = "60"
+        state.cached_price = "1"
+
+        primary, secondary, cost, _, error = _result_for(state)
+
+        self.assertEqual(
+            (primary, secondary, cost, error),
+            ("5 分/刀", "0.05 元/刀", "9.01357804 元", ""),
+        )
+
+    def test_token_cost_mode_recalculates_multiplier_when_official_prices_change(self) -> None:
+        state = TuiState()
+        state.toggle_mode()
+        state.toggle_mode()
+        state.token_price = "10"
+        state.output_price = "60"
+        state.cached_price = "1"
+
+        primary, secondary, cost, _, error = _result_for(state)
+
+        self.assertEqual(
+            (primary, secondary, cost, error),
+            ("0.02773593x", "2.77359334 分/刀", "5 元", ""),
+        )
 
     def test_tui_numeric_editing_replaces_selected_value(self) -> None:
         state = TuiState()

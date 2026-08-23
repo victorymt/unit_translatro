@@ -251,7 +251,7 @@ def _format_compact_channel_cost(
 
 def _print_channel_comparison(rows: tuple[ChannelCost, ...]) -> None:
     print("1 亿混合 Token 渠道对比:")
-    print(f"{_pad_display('渠道', 22)} {'USD':>12} {'CNY':>16} {'相对 ChatGPT':>12}")
+    print(f"{_pad_display('渠道', 22)} {'USD':>12} {'CNY':>16} {'相对成本倍数':>12}")
     for row in rows:
         print(_format_channel_cost(row))
 
@@ -309,6 +309,7 @@ def _run_cli(args: argparse.Namespace) -> int:
         usd_cny_rate = _positive(args.usd_cny_rate, "美元兑人民币汇率")
         ratio_text = format_decimal(ratio)
         if args.token_cost is not None:
+            print("换算口径: 固定 ChatGPT 1 亿混合 Token 实付成本，反推倍率")
             requested_cost = _non_negative(args.token_cost, "ChatGPT 中转 1 亿 Token 成本")
             fen = fen_from_token_cost(
                 requested_cost,
@@ -321,6 +322,7 @@ def _run_cli(args: argparse.Namespace) -> int:
             print(f"等价账号成本: {format_decimal(fen)} 分/刀")
             print(f"等价倍率: {format_decimal(multiplier)}x")
         elif args.multiplier is not None:
+            print("换算口径: 固定中转站倍率，按官方价格计算 Token 成本")
             multiplier = _non_negative(args.multiplier, "倍率")
             fen = fen_from_multiplier(multiplier, ratio)
             yuan = fen / ONE_HUNDRED
@@ -330,6 +332,7 @@ def _run_cli(args: argparse.Namespace) -> int:
                 f"({format_decimal(yuan)} 元/刀)"
             )
         else:
+            print("换算口径: 固定账号成本（分/刀），反推中转站倍率")
             fen = _non_negative(args.fen, "每刀价格")
             multiplier = multiplier_from_fen(fen, ratio)
             print(f"账号成本: {format_decimal(fen)} 分/刀")
@@ -555,9 +558,14 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
         subtitle = "同一用量配比下的渠道成本对比"
         _addstr(screen, 4, _centered_x(width, subtitle), subtitle, curses.A_DIM)
 
-    forward = " 倍率->几分 "
-    reverse = " 几分->倍率 "
-    token_cost_mode = " 1亿成本->两者 "
+    if compact:
+        forward = " 固定倍率->成本 "
+        reverse = " 固定成本->倍率 "
+        token_cost_mode = " 固定1亿成本->倍率 "
+    else:
+        forward = " 固定倍率->账号成本 "
+        reverse = " 固定账号成本->倍率 "
+        token_cost_mode = " 固定1亿成本->倍率 "
     modes_width = sum(
         _display_width(mode) for mode in (forward, reverse, token_cost_mode)
     ) + 6
@@ -684,9 +692,9 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
         )
     if comparison:
         comparison_title = (
-            "1亿成本: USD / CNY / 相对GPT"
+            "1亿成本: USD / CNY / 成本倍数"
             if compact
-            else "1 亿混合 Token 渠道对比: USD / CNY / 相对 ChatGPT"
+            else "1 亿混合 Token 渠道对比: USD / CNY / 相对成本倍数"
         )
         _addstr(
             screen,
