@@ -7,10 +7,12 @@ this module makes the first web integration usable with only the Python stdlib.
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from converter_core import (
     ConversionValidationError,
@@ -22,6 +24,7 @@ from converter_io import request_from_mapping, result_to_dict
 
 MAX_BODY_BYTES = 256 * 1024
 API_SCHEMA_VERSION = "1"
+STATIC_ROOT = Path(__file__).with_name("web")
 
 REQUEST_FIELDS = frozenset(
     {
@@ -78,6 +81,44 @@ class ConversionHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        cors_origin = self._cors_origin()
+        if cors_origin:
+            self.send_header("Access-Control-Allow-Origin", cors_origin)
+            self.send_header("Vary", "Origin")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_static(self, path: str) -> bool:
+        if path == "/":
+            relative = Path("index.html")
+            root = STATIC_ROOT
+        elif path.startswith("/assets/"):
+            relative = Path(unquote(path.removeprefix("/assets/")))
+            root = STATIC_ROOT / "assets"
+        else:
+            return False
+        if relative.is_absolute() or ".." in relative.parts:
+            self._send_json(404, {"error": {"code": "not_found", "message": "资源不存在"}})
+            return True
+        target = (root / relative).resolve()
+        try:
+            target.relative_to(root.resolve())
+        except ValueError:
+            self._send_json(404, {"error": {"code": "not_found", "message": "资源不存在"}})
+            return True
+        if not target.is_file():
+            self._send_json(404, {"error": {"code": "not_found", "message": "资源不存在"}})
+            return True
+        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        if content_type.startswith("text/") or content_type in {"application/javascript", "application/json"}:
+            content_type = f"{content_type}; charset=utf-8"
+        self._send_bytes(200, target.read_bytes(), content_type)
+        return True
+
     def do_OPTIONS(self) -> None:  # noqa: N802
         if self._cors_origin() is None and self.headers.get("Origin"):
             self._send_json(403, {"error": {"code": "cors_forbidden", "message": "跨域来源未被允许"}})
@@ -98,6 +139,8 @@ class ConversionHandler(BaseHTTPRequestHandler):
             return
         if path in {"/api/v1/profiles", "/v1/profiles"}:
             self._send_json(200, {"profiles": [profile.to_dict() for profile in DEEPSEEK_PRICE_PROFILES]})
+            return
+        if self._serve_static(path):
             return
         self._send_json(404, {"error": {"code": "not_found", "message": "资源不存在"}})
 

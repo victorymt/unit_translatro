@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="ChatGPT 中转成本与官方 API 价格换算器">
+    <title>Unit Translator</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">UNIT TRANSLATOR</p>
+        <h1>Token 成本换算</h1>
+      </div>
+      <span id="api-status" class="status" data-state="loading">连接中</span>
+    </header>
+
+    <main class="layout">
+      <section class="workspace" aria-labelledby="calculator-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">CALCULATOR</p>
+            <h2 id="calculator-title">换算参数</h2>
+          </div>
+          <p class="muted">金额和倍率按精确字符串传输</p>
+        </div>
+
+        <div class="mode-switch" role="group" aria-label="换算模式">
+          <button type="button" class="mode-button active" data-mode="multiplier">倍率</button>
+          <button type="button" class="mode-button" data-mode="fen">分/刀</button>
+          <button type="button" class="mode-button" data-mode="token_cost">Token 成本</button>
+        </div>
+
+        <form id="conversion-form" novalidate>
+          <div class="form-grid primary-grid">
+            <label class="field field-wide">
+              <span id="value-label">中转站倍率</span>
+              <input id="value" name="value" inputmode="decimal" value="0.05" required>
+              <small id="value-help">例如 0.05 表示 0.05x</small>
+            </label>
+            <label class="field">
+              <span>充值比例</span>
+              <input id="balance-per-yuan" inputmode="decimal" value="1" required>
+              <small>每 1 元获得的站内刀数</small>
+            </label>
+            <label class="field">
+              <span>美元兑人民币</span>
+              <input id="usd-cny-rate" inputmode="decimal" value="7.2" required>
+              <small>用于官方渠道对比</small>
+            </label>
+          </div>
+
+          <div class="subsection">
+            <div class="subsection-heading">
+              <h3>Token 用量</h3>
+              <span class="muted">默认使用 1 亿 Token 样本</span>
+            </div>
+            <div class="form-grid token-grid">
+              <label class="field"><span>输入 Token</span><input id="input-tokens" inputmode="decimal" value="12730000"></label>
+              <label class="field"><span>输出 Token</span><input id="output-tokens" inputmode="decimal" value="381680"></label>
+              <label class="field"><span>缓存 Token</span><input id="cached-tokens" inputmode="decimal" value="157670000"></label>
+            </div>
+          </div>
+
+          <div class="subsection">
+            <div class="subsection-heading">
+              <h3>ChatGPT 中转价格</h3>
+              <span class="muted">USD / 1M Token</span>
+            </div>
+            <div class="form-grid price-grid">
+              <label class="field"><span>输入价格</span><input id="input-price" inputmode="decimal" value="5"></label>
+              <label class="field"><span>输出价格</span><input id="output-price" inputmode="decimal" value="30"></label>
+              <label class="field"><span>缓存价格</span><input id="cached-price" inputmode="decimal" value="0.5"></label>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button class="submit-button" type="submit">计算成本</button>
+            <p id="form-error" class="form-error" role="alert" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+
+      <section class="results" aria-labelledby="results-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">RESULT</p>
+            <h2 id="results-title">换算结果</h2>
+          </div>
+          <span id="result-mode" class="result-mode">倍率模式</span>
+        </div>
+        <div id="summary" class="summary-grid" aria-live="polite">
+          <div class="summary-item"><span>倍率</span><strong id="multiplier-result">--</strong></div>
+          <div class="summary-item"><span>分/刀</span><strong id="fen-result">--</strong></div>
+          <div class="summary-item"><span>Token 成本</span><strong id="token-cost-result">--</strong></div>
+          <div class="summary-item"><span>官方成本</span><strong id="official-cost-result">--</strong></div>
+        </div>
+        <div class="comparison-heading">
+          <h3>渠道比较</h3>
+          <span id="comparison-count" class="muted">等待计算</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>渠道</th><th>USD</th><th>CNY</th><th>相对成本</th></tr></thead>
+            <tbody id="comparison-body"><tr><td colspan="4" class="empty-state">提交参数后显示比较结果</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

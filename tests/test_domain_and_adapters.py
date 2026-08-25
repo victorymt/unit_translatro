@@ -191,6 +191,29 @@ class DomainAndAdapterTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
+    def test_web_serves_static_frontend_and_rejects_unknown_assets(self) -> None:
+        server = create_server("127.0.0.1", 0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            with urlopen(f"{base_url}/?from=test") as response:
+                html = response.read().decode()
+                self.assertEqual(response.status, 200)
+                self.assertIn("Token 成本换算", html)
+                self.assertIn("/assets/app.js", html)
+            with urlopen(f"{base_url}/assets/app.js") as response:
+                javascript = response.read().decode()
+                self.assertEqual(response.status, 200)
+                self.assertIn("/api/v1/convert", javascript)
+            with self.assertRaises(HTTPError) as context:
+                urlopen(f"{base_url}/assets/missing.css")
+            self.assertEqual(context.exception.code, 404)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
 
 if __name__ == "__main__":
     unittest.main()
