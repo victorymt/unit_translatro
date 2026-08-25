@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from converter_core import (
+    ConversionValidationError,
     DEFAULT_CACHED_PRICE,
     DEFAULT_INPUT_PRICE,
     DEFAULT_OUTPUT_PRICE,
@@ -35,6 +36,8 @@ def _value(data: Mapping[str, Any], *names: str, default: Any = None) -> Any:
 def usage_from_mapping(data: Mapping[str, Any] | None) -> TokenUsage:
     if not data:
         return DEFAULT_USAGE
+    if not isinstance(data, Mapping):
+        raise ConversionValidationError("usage", "invalid_type", "usage 必须是 JSON 对象")
     return TokenUsage(
         _value(data, "input_tokens", "input", default=DEFAULT_USAGE.input_tokens),
         _value(data, "output_tokens", "output", default=DEFAULT_USAGE.output_tokens),
@@ -43,6 +46,8 @@ def usage_from_mapping(data: Mapping[str, Any] | None) -> TokenUsage:
 
 
 def chatgpt_profile_from_mapping(data: Mapping[str, Any] | None) -> TokenPriceProfile:
+    if data is not None and not isinstance(data, Mapping):
+        raise ConversionValidationError("chatgpt_profile", "invalid_type", "chatgpt_profile 必须是 JSON 对象")
     if not data:
         return TokenPriceProfile(
             "ChatGPT 中转",
@@ -70,20 +75,35 @@ def chatgpt_profile_from_mapping(data: Mapping[str, Any] | None) -> TokenPricePr
 
 def request_from_mapping(data: Mapping[str, Any]) -> ConversionRequest:
     """Parse the public request schema used by JSON and HTTP adapters."""
-    profiles_data = data.get("comparison_profiles") or data.get("profiles")
+    profiles_data = (
+        data["comparison_profiles"]
+        if "comparison_profiles" in data
+        else data.get("profiles")
+    )
+    if profiles_data is not None and not isinstance(profiles_data, (list, tuple)):
+        raise ConversionValidationError(
+            "comparison_profiles", "invalid_type", "comparison_profiles 必须是数组"
+        )
+    if profiles_data is not None and any(not isinstance(item, Mapping) for item in profiles_data):
+        raise ConversionValidationError(
+            "comparison_profiles", "invalid_profile", "comparison_profiles 中每项必须是对象"
+        )
     profiles = (
         tuple(profile_from_mapping(item) for item in profiles_data)
-        if profiles_data
+        if profiles_data is not None
         else DEEPSEEK_PRICE_PROFILES
+    )
+    profile_data = (
+        data["chatgpt_profile"]
+        if "chatgpt_profile" in data
+        else data.get("prices")
     )
     return ConversionRequest(
         mode=str(data.get("mode", "multiplier")),
         value=_value(data, "value", "multiplier", "fen", "token_cost", default="0"),
         balance_per_yuan=_value(data, "balance_per_yuan", "ratio", default="1"),
         usage=usage_from_mapping(data.get("usage")),
-        chatgpt_profile=chatgpt_profile_from_mapping(
-            data.get("chatgpt_profile") or data.get("prices")
-        ),
+        chatgpt_profile=chatgpt_profile_from_mapping(profile_data),
         usd_cny_rate=_value(data, "usd_cny_rate", "exchange_rate", default=DEFAULT_USD_CNY_RATE),
         comparison_profiles=profiles,
     )
@@ -150,4 +170,3 @@ def render_result(result: ConversionResult, output_format: str) -> str:
 def parse_decimal_fields(data: Mapping[str, Any]) -> dict[str, Decimal]:
     """Useful for callers that need a validated numeric snapshot."""
     return {key: Decimal(str(value)) for key, value in data.items()}
-

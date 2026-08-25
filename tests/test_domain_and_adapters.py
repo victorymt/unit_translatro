@@ -114,15 +114,18 @@ class DomainAndAdapterTests(unittest.TestCase):
         base_url = f"http://127.0.0.1:{server.server_address[1]}"
         try:
             with urlopen(f"{base_url}/health") as response:
-                self.assertEqual(json.loads(response.read())["status"], "ok")
+                health = json.loads(response.read())
+            self.assertEqual(health["schema_version"], "1")
+            self.assertEqual(health["status"], "ok")
             request = Request(
-                f"{base_url}/api/v1/convert",
+                f"{base_url}/api/v1/convert?source=test",
                 data=json.dumps({"mode": "multiplier", "value": "0.05"}).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
             with urlopen(request) as response:
                 payload = json.loads(response.read())
+            self.assertEqual(payload["schema_version"], "1")
             self.assertEqual(payload["multiplier"], "0.05")
             invalid = Request(
                 f"{base_url}/api/v1/convert",
@@ -136,6 +139,53 @@ class DomainAndAdapterTests(unittest.TestCase):
             error_payload = json.loads(context.exception.read())
             self.assertEqual(error_payload["error"]["code"], "invalid_mode")
             self.assertEqual(error_payload["error"]["field"], "mode")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_web_rejects_missing_value_unknown_fields_and_empty_usage(self) -> None:
+        server = create_server("127.0.0.1", 0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            for payload, field, code in (
+                ({"mode": "multiplier"}, "value", "missing_field"),
+                ({"mode": "multiplier", "value": "1", "unexpected": True}, "unexpected", "unknown_field"),
+                ({"mode": "multiplier", "value": "1", "usage": {}}, "usage", "empty_usage"),
+                ({"mode": "multiplier", "value": "1", "chatgpt_profile": []}, "chatgpt_profile", "invalid_type"),
+            ):
+                request = Request(
+                    f"{base_url}/api/v1/convert",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(HTTPError) as context:
+                    urlopen(request)
+                self.assertEqual(context.exception.code, 422)
+                error_payload = json.loads(context.exception.read())
+                self.assertEqual(error_payload["schema_version"], "1")
+                self.assertEqual(error_payload["error"]["field"], field)
+                self.assertEqual(error_payload["error"]["code"], code)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_web_cors_is_opt_in(self) -> None:
+        server = create_server("127.0.0.1", 0, cors_origins={"http://localhost:3000"})
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            allowed = Request(f"{base_url}/health", headers={"Origin": "http://localhost:3000"})
+            with urlopen(allowed) as response:
+                self.assertEqual(response.headers["Access-Control-Allow-Origin"], "http://localhost:3000")
+            default = Request(f"{base_url}/health", headers={"Origin": "http://example.test"})
+            with urlopen(default) as response:
+                self.assertIsNone(response.headers.get("Access-Control-Allow-Origin"))
         finally:
             server.shutdown()
             server.server_close()
