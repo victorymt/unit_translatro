@@ -18,6 +18,7 @@ from converter_core import (
     calculate_conversion,
 )
 from converter_io import request_from_mapping
+from pricing_catalog import PricingCatalog, StaticExchangeRateProvider, load_pricing_catalog
 from unit_converter import main
 from web_api import create_server
 
@@ -209,6 +210,46 @@ class DomainAndAdapterTests(unittest.TestCase):
             with self.assertRaises(HTTPError) as context:
                 urlopen(f"{base_url}/assets/missing.css")
             self.assertEqual(context.exception.code, 404)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_pricing_catalog_loads_versioned_profiles(self) -> None:
+        catalog = load_pricing_catalog()
+        self.assertEqual(catalog.version, "pricing-2026-08-21")
+        self.assertEqual(len(catalog.profiles), 4)
+        self.assertEqual(catalog.profiles[0].effective_at, "2026-08-21")
+        self.assertEqual(len(catalog.list_profiles(as_of="2026-08-20")), 0)
+        rate = StaticExchangeRateProvider("7.1", source="test").current()
+        self.assertEqual(rate.value, Decimal("7.1"))
+        self.assertEqual(rate.source, "test")
+
+    def test_web_uses_custom_pricing_catalog(self) -> None:
+        profile = TokenPriceProfile(
+            "Custom channel", "1", "1", "1", provider="custom", model="demo",
+            effective_at="2026-01-01", version="custom-v1",
+        )
+        catalog = PricingCatalog((profile,), version="custom-v1")
+        server = create_server("127.0.0.1", 0, pricing_catalog=catalog)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            with urlopen(f"{base_url}/api/v1/profiles?as_of=2026-01-01") as response:
+                profiles_payload = json.loads(response.read())
+            self.assertEqual(profiles_payload["catalog_version"], "custom-v1")
+            self.assertEqual(profiles_payload["profiles"][0]["name"], "Custom channel")
+            request = Request(
+                f"{base_url}/api/v1/convert",
+                data=json.dumps({"mode": "multiplier", "value": "0.1"}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request) as response:
+                result = json.loads(response.read())
+            self.assertEqual(result["comparison"][1]["name"], "Custom channel")
+            self.assertEqual(result["comparison"][1]["provider"], "custom")
         finally:
             server.shutdown()
             server.server_close()

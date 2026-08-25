@@ -20,6 +20,7 @@ from converter_core import (
     calculate_conversion,
 )
 from converter_io import request_from_mapping, result_to_dict
+from pricing_catalog import PricingCatalog, load_pricing_catalog
 
 
 MAX_BODY_BYTES = 256 * 1024
@@ -53,6 +54,7 @@ def _json_bytes(payload: object) -> bytes:
 class ConversionHandler(BaseHTTPRequestHandler):
     server_version = "unit-translator/1.0"
     allowed_origins: frozenset[str] = frozenset()
+    pricing_catalog: PricingCatalog = load_pricing_catalog()
 
     @property
     def request_path(self) -> str:
@@ -138,7 +140,13 @@ class ConversionHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"status": "ok", "service": "unit-translator"})
             return
         if path in {"/api/v1/profiles", "/v1/profiles"}:
-            self._send_json(200, {"profiles": [profile.to_dict() for profile in DEEPSEEK_PRICE_PROFILES]})
+            query = urlsplit(self.path).query
+            as_of = next(
+                (item.split("=", 1)[1] for item in query.split("&") if item.startswith("as_of=")),
+                None,
+            )
+            catalog = self.pricing_catalog.to_dict(as_of=unquote(as_of) if as_of else None)
+            self._send_json(200, {"catalog_version": catalog["version"], "profiles": catalog["profiles"]})
             return
         if self._serve_static(path):
             return
@@ -181,7 +189,12 @@ class ConversionHandler(BaseHTTPRequestHandler):
                 raise ConversionValidationError("value", "missing_field", "缺少 value")
             if "usage" in payload and payload["usage"] == {}:
                 raise ConversionValidationError("usage", "empty_usage", "usage 不能为空")
-            result = calculate_conversion(request_from_mapping(payload))
+            request_payload = dict(payload)
+            if "comparison_profiles" not in request_payload and "profiles" not in request_payload:
+                request_payload["comparison_profiles"] = [
+                    profile.to_dict() for profile in self.pricing_catalog.profiles
+                ]
+            result = calculate_conversion(request_from_mapping(request_payload))
         except ConversionValidationError as exc:
             self._send_json(
                 422,
@@ -208,11 +221,15 @@ def create_server(
     port: int = 8787,
     *,
     cors_origins: set[str] | frozenset[str] | None = None,
+    pricing_catalog: PricingCatalog | None = None,
+    pricing_catalog_path: str | Path | None = None,
 ) -> ThreadingHTTPServer:
     origins = frozenset(cors_origins) if cors_origins is not None else _configured_origins()
+    catalog = pricing_catalog or load_pricing_catalog(pricing_catalog_path)
 
     class ConfiguredConversionHandler(ConversionHandler):
         allowed_origins = origins
+        pricing_catalog = catalog
 
     return ThreadingHTTPServer((host, port), ConfiguredConversionHandler)
 

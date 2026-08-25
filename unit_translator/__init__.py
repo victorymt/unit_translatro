@@ -19,6 +19,13 @@ from converter_core import (  # noqa: F401
     token_cost_yuan,
     token_cost_yuan_for_usage,
 )
+from pricing_catalog import (  # noqa: F401
+    ExchangeRate,
+    ExchangeRateProvider,
+    PricingCatalog,
+    StaticExchangeRateProvider,
+    load_pricing_catalog,
+)
 
 __all__ = [
     "ChannelCost",
@@ -38,4 +45,9 @@ __all__ = [
     "official_token_cost_usd_for_usage",
     "token_cost_yuan",
     "token_cost_yuan_for_usage",
+    "ExchangeRate",
+    "ExchangeRateProvider",
+    "PricingCatalog",
+    "StaticExchangeRateProvider",
+    "load_pricing_catalog",
 ]

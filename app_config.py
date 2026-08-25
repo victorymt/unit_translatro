@@ -21,6 +21,7 @@ from converter_core import (
 )
 from converter_io import chatgpt_profile_from_mapping, usage_from_mapping
 from converter_core import profile_from_mapping
+from pricing_catalog import load_pricing_catalog
 
 
 @dataclass(frozen=True)
@@ -31,16 +32,19 @@ class Settings:
     )
     usage: TokenUsage = field(default_factory=lambda: DEFAULT_USAGE)
     usd_cny_rate: str = str(DEFAULT_USD_CNY_RATE)
-    comparison_profiles: tuple[TokenPriceProfile, ...] = DEEPSEEK_PRICE_PROFILES
-    version: str = "builtin-2026-08-21"
+    comparison_profiles: tuple[TokenPriceProfile, ...] = field(
+        default_factory=lambda: load_pricing_catalog().profiles
+    )
+    version: str = field(default_factory=lambda: load_pricing_catalog().version)
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "Settings":
         profiles_data = data.get("comparison_profiles") or data.get("profiles")
+        catalog = load_pricing_catalog()
         profiles = (
             tuple(profile_from_mapping(item) for item in profiles_data)
             if profiles_data
-            else DEEPSEEK_PRICE_PROFILES
+            else catalog.profiles
         )
         return cls(
             balance_per_yuan=str(data.get("balance_per_yuan", data.get("ratio", "1"))),
@@ -50,7 +54,7 @@ class Settings:
             usage=usage_from_mapping(data.get("usage")),
             usd_cny_rate=str(data.get("usd_cny_rate", DEFAULT_USD_CNY_RATE)),
             comparison_profiles=profiles,
-            version=str(data.get("version", "custom")),
+            version=str(data.get("version", catalog.version)),
         )
 
     def to_dict(self) -> dict[str, object]:

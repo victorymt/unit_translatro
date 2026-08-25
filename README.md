@@ -205,6 +205,10 @@ python3 unit_converter.py --serve --host 127.0.0.1 --port 8787
 
 Web API 默认只监听本机地址，公网部署前应放在反向代理或 FastAPI/ASGI 服务后，并补充认证、限流、日志和价格更新策略。
 
+价格目录位于 `config/default_profiles.json`，每条记录包含 provider、model、三类 Token 单价、来源、生效日期和版本。Web API 会从目录读取 `/api/v1/profiles`，也可通过 `create_server(pricing_catalog_path=...)` 注入另一份目录；请求中显式提供 `comparison_profiles` 时仍可做临时比较。`as_of=YYYY-MM-DD` 查询可筛选生效日期不晚于指定日期的价格。
+
+汇率保持显式传入以保证换算可复现；`StaticExchangeRateProvider` 和 `ExchangeRateProvider` 已提供可替换边界，后续可以接入带缓存和来源信息的联网 provider，而无需修改领域计算函数。
+
 ## 测试
 
 ```bash
