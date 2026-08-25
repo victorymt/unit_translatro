@@ -173,6 +173,16 @@ cached_price = "0.5"
 python3 unit_converter.py --config settings.toml --multiplier 0.05
 ```
 
+同一个配置文件也会用于终端界面、JSONL/CSV 批处理和本地 Web API：
+
+```bash
+python3 unit_converter.py --config settings.toml
+python3 unit_converter.py --config settings.toml --input-file requests.jsonl --format json
+python3 unit_converter.py --serve --config settings.toml --host 127.0.0.1 --port 8787
+```
+
+配置中的 `usage`、`chatgpt_profile`、`comparison_profiles` 和 `usd_cny_rate` 会作为各入口的默认值；请求或命令行显式提供的值优先。价格目录快照和汇率都通过可替换 provider 解析，计算结果仍保持显式汇率和精确字符串输出。
+
 ## Web API
 
 项目提供零依赖的本地 HTTP 适配器，适合先做内部工具或前端原型：

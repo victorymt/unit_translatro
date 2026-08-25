@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import sysconfig
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -16,16 +17,25 @@ from urllib.parse import unquote, urlsplit
 
 from converter_core import (
     ConversionValidationError,
-    DEEPSEEK_PRICE_PROFILES,
     calculate_conversion,
 )
 from converter_io import request_from_mapping, result_to_dict
+from app_config import Settings, load_settings
 from pricing_catalog import PricingCatalog, load_pricing_catalog
 
 
 MAX_BODY_BYTES = 256 * 1024
 API_SCHEMA_VERSION = "1"
-STATIC_ROOT = Path(__file__).with_name("web")
+
+def _static_root() -> Path:
+    local_root = Path(__file__).with_name("web")
+    if local_root.is_dir():
+        return local_root
+    data_root = Path(sysconfig.get_path("data") or sysconfig.get_config_var("prefix"))
+    return data_root / "web"
+
+
+STATIC_ROOT = _static_root()
 
 REQUEST_FIELDS = frozenset(
     {
@@ -55,6 +65,7 @@ class ConversionHandler(BaseHTTPRequestHandler):
     server_version = "unit-translator/1.0"
     allowed_origins: frozenset[str] = frozenset()
     pricing_catalog: PricingCatalog = load_pricing_catalog()
+    settings: Settings = Settings()
 
     @property
     def request_path(self) -> str:
@@ -189,11 +200,7 @@ class ConversionHandler(BaseHTTPRequestHandler):
                 raise ConversionValidationError("value", "missing_field", "缺少 value")
             if "usage" in payload and payload["usage"] == {}:
                 raise ConversionValidationError("usage", "empty_usage", "usage 不能为空")
-            request_payload = dict(payload)
-            if "comparison_profiles" not in request_payload and "profiles" not in request_payload:
-                request_payload["comparison_profiles"] = [
-                    profile.to_dict() for profile in self.pricing_catalog.profiles
-                ]
+            request_payload = self.settings.apply_defaults(payload)
             result = calculate_conversion(request_from_mapping(request_payload))
         except ConversionValidationError as exc:
             self._send_json(
@@ -221,21 +228,41 @@ def create_server(
     port: int = 8787,
     *,
     cors_origins: set[str] | frozenset[str] | None = None,
+    settings: Settings | None = None,
+    settings_path: str | Path | None = None,
     pricing_catalog: PricingCatalog | None = None,
     pricing_catalog_path: str | Path | None = None,
 ) -> ThreadingHTTPServer:
     origins = frozenset(cors_origins) if cors_origins is not None else _configured_origins()
-    catalog = pricing_catalog or load_pricing_catalog(pricing_catalog_path)
+    configured_settings = settings
+    if configured_settings is None and settings_path is not None:
+        configured_settings = load_settings(settings_path)
+    catalog = pricing_catalog or (
+        configured_settings.as_catalog()
+        if configured_settings is not None
+        else load_pricing_catalog(pricing_catalog_path)
+    )
+    configured_settings = configured_settings or Settings(
+        comparison_profiles=catalog.profiles,
+        version=catalog.version,
+    )
 
     class ConfiguredConversionHandler(ConversionHandler):
         allowed_origins = origins
         pricing_catalog = catalog
+        settings = configured_settings
 
     return ThreadingHTTPServer((host, port), ConfiguredConversionHandler)
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8787) -> None:
-    server = create_server(host, port)
+def run_server(
+    host: str = "127.0.0.1",
+    port: int = 8787,
+    *,
+    settings: Settings | None = None,
+    settings_path: str | Path | None = None,
+) -> None:
+    server = create_server(host, port, settings=settings, settings_path=settings_path)
     print(f"unit-translator web API listening on http://{host}:{port}")
     try:
         server.serve_forever()

@@ -44,3 +44,32 @@ jobs:
         run: >-
           python -m pip wheel . --no-deps --no-build-isolation
           --wheel-dir "${RUNNER_TEMP}/wheels"
+
+      - name: Install wheel and verify packaged assets
+        shell: bash
+        run: |
+          venv_root="${RUNNER_TEMP}/wheel-venv"
+          python -m venv "${venv_root}"
+          "${venv_root}/bin/python" -m pip install --no-deps "${RUNNER_TEMP}/wheels"/*.whl
+          "${venv_root}/bin/python" - <<'PY'
+          import threading
+          from urllib.request import urlopen
+
+          from pricing_catalog import load_pricing_catalog
+          from web_api import create_server
+
+          catalog = load_pricing_catalog()
+          assert catalog.version == "pricing-2026-08-21"
+          assert len(catalog.profiles) == 4
+          server = create_server("127.0.0.1", 0)
+          thread = threading.Thread(target=server.serve_forever, daemon=True)
+          thread.start()
+          try:
+              base_url = f"http://127.0.0.1:{server.server_address[1]}"
+              with urlopen(base_url + "/") as response:
+                  assert "Token 成本换算" in response.read().decode()
+          finally:
+              server.shutdown()
+              server.server_close()
+              thread.join(timeout=2)
+          PY

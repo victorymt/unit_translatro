@@ -16,7 +16,6 @@ from converter_core import (
     DEFAULT_OUTPUT_PRICE,
     DEFAULT_USAGE,
     DEFAULT_USD_CNY_RATE,
-    DEEPSEEK_PRICE_PROFILES,
     ConversionRequest,
     ConversionResult,
     TokenPriceProfile,
@@ -24,6 +23,7 @@ from converter_core import (
     calculate_conversion,
     profile_from_mapping,
 )
+from pricing_catalog import load_pricing_catalog
 
 
 def _value(data: Mapping[str, Any], *names: str, default: Any = None) -> Any:
@@ -91,7 +91,7 @@ def request_from_mapping(data: Mapping[str, Any]) -> ConversionRequest:
     profiles = (
         tuple(profile_from_mapping(item) for item in profiles_data)
         if profiles_data is not None
-        else DEEPSEEK_PRICE_PROFILES
+        else load_pricing_catalog().profiles
     )
     profile_data = (
         data["chatgpt_profile"]

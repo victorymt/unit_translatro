@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import curses
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Sequence
 
@@ -50,7 +50,7 @@ from converter_core import (  # noqa: E402  (compatibility facade import)
 )
 from converter_io import render_result
 from batch_processing import batch_to_csv, batch_to_json
-from app_config import load_settings
+from app_config import Settings, load_settings
 
 
 def _format_channel_cost(row: ChannelCost, total_width: int | None = None) -> str:
@@ -276,6 +276,23 @@ class TuiState:
     usd_cny_rate: str = "7.2"
     active_field: int = 0
     replace_on_type: bool = True
+    usage: TokenUsage = field(default_factory=lambda: DEFAULT_USAGE)
+    comparison_profiles: tuple[TokenPriceProfile, ...] = field(
+        default_factory=lambda: DEEPSEEK_PRICE_PROFILES
+    )
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "TuiState":
+        profile = settings.chatgpt_profile
+        return cls(
+            ratio=str(settings.balance_per_yuan),
+            token_price=str(profile.input_price),
+            output_price=str(profile.output_price),
+            cached_price=str(profile.cached_price),
+            usd_cny_rate=str(settings.current_exchange_rate().value),
+            usage=settings.usage,
+            comparison_profiles=settings.comparison_profiles,
+        )
 
     def toggle_mode(self, direction: int = 1) -> None:
         modes = ("multiplier", "fen", "token_cost")
@@ -357,7 +374,7 @@ def _result_for(
                 mode=state.mode,
                 value=state.value,
                 balance_per_yuan=state.ratio,
-                usage=DEFAULT_USAGE,
+                usage=state.usage,
                 chatgpt_profile=TokenPriceProfile(
                     "ChatGPT 中转",
                     state.token_price,
@@ -367,6 +384,7 @@ def _result_for(
                     model="custom",
                 ),
                 usd_cny_rate=state.usd_cny_rate,
+                comparison_profiles=state.comparison_profiles,
             )
         )
         primary = (
@@ -624,8 +642,9 @@ def _draw_tui(screen: curses.window, state: TuiState) -> None:
 
 def _curses_main(
     screen: curses.window,
+    settings: Settings | None = None,
 ) -> tuple[str, str, str, tuple[ChannelCost, ...]] | None:
-    state = TuiState()
+    state = TuiState.from_settings(settings) if settings is not None else TuiState()
     curses.curs_set(0)
     screen.keypad(True)
 
@@ -652,8 +671,8 @@ def _curses_main(
             state.edit(key)
 
 
-def launch_tui() -> int:
-    result = curses.wrapper(_curses_main)
+def launch_tui(settings: Settings | None = None) -> int:
+    result = curses.wrapper(lambda screen: _curses_main(screen, settings))
     if result is not None:
         primary, secondary, hundred_million_cost, comparison = result
         print(f"换算结果: {primary}")
@@ -668,17 +687,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.serve:
-        from web_api import run_server
+        try:
+            from web_api import run_server
 
-        run_server(args.host, args.port)
-        return 0
+            run_server(args.host, args.port, settings_path=args.config)
+            return 0
+        except ValueError as exc:
+            print(f"错误: {exc}")
+            return 2
     if args.input_file or any(
         value is not None for value in (args.multiplier, args.fen, args.token_cost)
     ):
         return _run_cli(args)
     try:
-        return launch_tui()
-    except (curses.error, OSError) as exc:
+        return launch_tui(load_settings(args.config))
+    except (ValueError, curses.error, OSError) as exc:
         parser.error(f"无法启动终端界面: {exc}")
 
 

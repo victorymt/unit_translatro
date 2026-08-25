@@ -35,33 +35,33 @@ def iter_records(path: str | Path) -> Iterator[dict[str, Any]]:
             yield record
 
 
-def _csv_record_to_request(record: Mapping[str, Any]) -> dict[str, Any]:
+def _csv_record_to_request(
+    record: Mapping[str, Any], settings: "Settings | None" = None
+) -> dict[str, Any]:
     """Accept flat CSV columns while keeping the JSON schema as the canonical form."""
     result = dict(record)
-    if "usage" not in result:
+    flat_usage_fields = {"input_tokens", "output_tokens", "cached_tokens"}
+    if "usage" not in result and flat_usage_fields.intersection(result):
+        defaults = settings.usage if settings is not None else DEFAULT_USAGE
         result["usage"] = {
-            "input_tokens": result.pop("input_tokens", DEFAULT_USAGE.input_tokens),
-            "output_tokens": result.pop("output_tokens", DEFAULT_USAGE.output_tokens),
-            "cached_tokens": result.pop("cached_tokens", DEFAULT_USAGE.cached_tokens),
+            "input_tokens": result.pop("input_tokens", defaults.input_tokens),
+            "output_tokens": result.pop("output_tokens", defaults.output_tokens),
+            "cached_tokens": result.pop("cached_tokens", defaults.cached_tokens),
         }
     return result
 
 
 def _apply_settings(record: Mapping[str, Any], settings: "Settings | None") -> dict[str, Any]:
-    result = dict(record)
     if settings is None:
-        return result
-    result.setdefault("balance_per_yuan", settings.balance_per_yuan)
-    result.setdefault("usd_cny_rate", settings.usd_cny_rate)
-    result.setdefault("usage", settings.usage.to_dict())
-    result.setdefault("chatgpt_profile", settings.chatgpt_profile.to_dict())
-    return result
+        return dict(record)
+    return settings.apply_defaults(record)
 
 
 def iter_results(path: str | Path, settings: "Settings | None" = None) -> Iterator[ConversionResult]:
     for record in iter_records(path):
+        request_data = _csv_record_to_request(record, settings)
         yield calculate_conversion(
-            request_from_mapping(_apply_settings(_csv_record_to_request(record), settings))
+            request_from_mapping(_apply_settings(request_data, settings))
         )
 
 

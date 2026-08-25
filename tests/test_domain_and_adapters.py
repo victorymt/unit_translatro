@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from app_config import load_settings
+from app_config import Settings, load_settings
 from batch_processing import batch_to_csv, batch_to_json
 from converter_core import (
     ConversionRequest,
@@ -102,6 +102,39 @@ class DomainAndAdapterTests(unittest.TestCase):
         self.assertIn("multiplier", output)
         self.assertIn("6.65", output)
 
+    def test_batch_uses_settings_for_records_without_explicit_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "settings.json"
+            requests = Path(directory) / "requests.jsonl"
+            config.write_text(
+                json.dumps(
+                    {
+                        "usd_cny_rate": "6.8",
+                        "usage": {
+                            "input_tokens": "1",
+                            "output_tokens": "2",
+                            "cached_tokens": "3",
+                        },
+                        "comparison_profiles": [
+                            {
+                                "name": "Custom",
+                                "provider": "test",
+                                "model": "demo",
+                                "input_price": "1",
+                                "output_price": "1",
+                                "cached_price": "1",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            requests.write_text('{"mode":"multiplier","value":"0.1"}\n', encoding="utf-8")
+            payload = json.loads(batch_to_json(requests, load_settings(config)))
+        self.assertEqual(payload[0]["usage"]["total_tokens"], "6")
+        self.assertEqual(payload[0]["comparison"][1]["name"], "Custom")
+        self.assertEqual(payload[0]["usd_cny_rate"], "6.8")
+
     def test_toml_settings_override_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.toml"
@@ -119,6 +152,18 @@ class DomainAndAdapterTests(unittest.TestCase):
         self.assertEqual(settings.version, "test-v1")
         self.assertEqual(settings.balance_per_yuan, "1.2")
         self.assertEqual(settings.chatgpt_profile.input_price, 2)
+
+    def test_settings_resolve_rate_provider_and_catalog_snapshot(self) -> None:
+        settings = Settings(
+            usd_cny_rate="6.9",
+            version="settings-v1",
+            comparison_profiles=(TokenPriceProfile("Configured", "1", "1", "1"),),
+        )
+        rate = settings.current_exchange_rate()
+        self.assertEqual(rate.value, Decimal("6.9"))
+        self.assertEqual(rate.source, "settings:settings-v1")
+        self.assertEqual(settings.as_catalog().version, "settings-v1")
+        self.assertEqual(settings.as_catalog().profiles[0].name, "Configured")
 
     def test_web_health_and_conversion(self) -> None:
         server = create_server("127.0.0.1", 0)
@@ -266,6 +311,40 @@ class DomainAndAdapterTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+
+    def test_web_uses_settings_defaults_for_conversion(self) -> None:
+        profile = TokenPriceProfile(
+            "Configured channel", "1", "2", "0.5", provider="configured", model="demo"
+        )
+        settings = Settings(
+            balance_per_yuan="1.2",
+            chatgpt_profile=profile,
+            usage=TokenUsage("1", "2", "3"),
+            usd_cny_rate="6.8",
+            comparison_profiles=(profile,),
+            version="settings-v1",
+        )
+        server = create_server("127.0.0.1", 0, settings=settings)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            request = Request(
+                f"{base_url}/api/v1/convert",
+                data=json.dumps({"mode": "multiplier", "value": "0.1"}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request) as response:
+                result = json.loads(response.read())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        self.assertEqual(result["usage"]["total_tokens"], "6")
+        self.assertEqual(result["chatgpt_profile"]["input_price"], "1")
+        self.assertEqual(result["usd_cny_rate"], "6.8")
+        self.assertEqual(result["comparison"][1]["name"], "Configured channel")
 
 
 if __name__ == "__main__":

@@ -30,5 +30,10 @@ py-modules = [
 [tool.setuptools.packages.find]
 include = ["unit_translator*"]
 
+[tool.setuptools.data-files]
+"config" = ["config/default_profiles.json"]
+"web" = ["web/index.html"]
+"web/assets" = ["web/assets/app.js", "web/assets/styles.css"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

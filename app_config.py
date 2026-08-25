@@ -10,18 +10,24 @@ import json
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from converter_core import (
     DEFAULT_USAGE,
     DEFAULT_USD_CNY_RATE,
-    DEEPSEEK_PRICE_PROFILES,
     TokenPriceProfile,
     TokenUsage,
 )
 from converter_io import chatgpt_profile_from_mapping, usage_from_mapping
 from converter_core import profile_from_mapping
-from pricing_catalog import load_pricing_catalog
+from pricing_catalog import (
+    ExchangeRate,
+    ExchangeRateProvider,
+    PricingCatalog,
+    StaticExchangeRateProvider,
+    load_pricing_catalog,
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,9 @@ class Settings:
         default_factory=lambda: load_pricing_catalog().profiles
     )
     version: str = field(default_factory=lambda: load_pricing_catalog().version)
+    exchange_rate_provider: ExchangeRateProvider | None = field(
+        default=None, repr=False, compare=False
+    )
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "Settings":
@@ -66,6 +75,31 @@ class Settings:
             "chatgpt_profile": self.chatgpt_profile.to_dict(),
             "comparison_profiles": [profile.to_dict() for profile in self.comparison_profiles],
         }
+
+    def as_catalog(self) -> PricingCatalog:
+        """Return the profile snapshot used by this settings instance."""
+        return PricingCatalog(self.comparison_profiles, version=self.version)
+
+    def current_exchange_rate(self) -> ExchangeRate:
+        """Resolve the configured rate through the provider boundary."""
+        provider = self.exchange_rate_provider or StaticExchangeRateProvider(
+            self.usd_cny_rate,
+            source=f"settings:{self.version}",
+        )
+        return provider.current()
+
+    def apply_defaults(self, data: Mapping[str, Any]) -> dict[str, Any]:
+        """Fill adapter request defaults while preserving explicit request values."""
+        result = dict(data)
+        result.setdefault("balance_per_yuan", self.balance_per_yuan)
+        result.setdefault("usd_cny_rate", str(self.current_exchange_rate().value))
+        result.setdefault("usage", self.usage.to_dict())
+        result.setdefault("chatgpt_profile", self.chatgpt_profile.to_dict())
+        if "comparison_profiles" not in result and "profiles" not in result:
+            result["comparison_profiles"] = [
+                profile.to_dict() for profile in self.comparison_profiles
+            ]
+        return result
 
 
 def load_settings(path: str | Path | None) -> Settings:

@@ -5,6 +5,8 @@ from decimal import Decimal
 from io import StringIO
 from unittest.mock import patch
 
+from app_config import Settings
+from converter_core import TokenPriceProfile, TokenUsage
 from unit_converter import (
     TuiState,
     _curses_main,
@@ -168,6 +170,28 @@ class ConversionTests(unittest.TestCase):
             ("0.05547187x", "5.54718668 分/刀", "5 元", ""),
         )
         self.assertEqual(comparison[0].yuan, Decimal("5"))
+
+    def test_tui_state_uses_settings_defaults(self) -> None:
+        profile = TokenPriceProfile(
+            "Configured channel", "1", "2", "0.5", provider="configured", model="demo"
+        )
+        state = TuiState.from_settings(
+            Settings(
+                balance_per_yuan="1.2",
+                chatgpt_profile=profile,
+                usage=TokenUsage("1", "2", "3"),
+                usd_cny_rate="6.8",
+                comparison_profiles=(profile,),
+            )
+        )
+        primary, _, cost, comparison, error = _result_for(state)
+        self.assertEqual(error, "")
+        self.assertEqual(state.ratio, "1.2")
+        self.assertEqual(state.token_price, "1")
+        self.assertEqual(state.usd_cny_rate, "6.8")
+        self.assertEqual(primary, "4.16666667 分/刀")
+        self.assertEqual(cost, "0.00000027 元")
+        self.assertEqual(comparison[1].name, "Configured channel")
 
     def test_multiplier_mode_keeps_multiplier_when_official_prices_change(self) -> None:
         state = TuiState()
