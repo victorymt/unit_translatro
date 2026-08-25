@@ -66,6 +66,18 @@ class DomainAndAdapterTests(unittest.TestCase):
         self.assertTrue(payload["token_cost_yuan"].startswith("4.506789018"))
         self.assertIsInstance(payload["comparison"], list)
 
+    def test_cli_batch_input_does_not_start_tui(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "requests.jsonl"
+            path.write_text('{"mode":"multiplier","value":"0.05"}\n', encoding="utf-8")
+            output = StringIO()
+            with redirect_stdout(output):
+                exit_code = main(["--input-file", str(path), "--format", "json"])
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["mode"], "multiplier")
+
     def test_batch_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "requests.jsonl"

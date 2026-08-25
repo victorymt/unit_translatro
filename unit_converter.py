@@ -672,7 +672,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         run_server(args.host, args.port)
         return 0
-    if any(
+    if args.input_file or any(
         value is not None for value in (args.multiplier, args.fen, args.token_cost)
     ):
         return _run_cli(args)
