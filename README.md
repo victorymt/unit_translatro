@@ -117,6 +117,94 @@ DeepSeek 普通输入对应官网的 Cache Miss，样本中的缓存 Token 对�
 
 价格来源：[DeepSeek Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing)，核对日期 `2026-08-21`。价格固定在代码中，运行时不会联网；官方调价后需要同步更新价格常量和测试预期。
 
+## 可编程 API
+
+领域计算已经从终端适配器中抽出，可以直接作为 Python 库使用：
+
+```python
+from unit_translator import ConversionRequest, TokenUsage, calculate_conversion
+
+result = calculate_conversion(
+    ConversionRequest(
+        mode="multiplier",
+        value="0.05",
+        usage=TokenUsage(input_tokens="1000000", output_tokens="200000", cached_tokens="800000"),
+    )
+)
+print(result.token_cost_yuan)
+```
+
+`TokenUsage` 允许传入任意输入、输出、缓存 Token 数量；默认值仍保持原来的 1 亿 Token 归一化样本。领域结果保留 `Decimal` 精度，适配层 JSON 会将金额和倍率序列化为字符串。
+
+## JSON、批处理与配置
+
+使用 `--format json` 或 `--format csv` 获取稳定的机器可读结果：
+
+```bash
+python3 unit_converter.py --multiplier 0.05 --format json
+python3 unit_converter.py --fen 5 --format csv
+```
+
+批处理输入支持 JSONL 和 CSV。JSONL 每行是一个转换请求，例如：
+
+```json
+{"mode":"multiplier","value":"0.05"}
+{"mode":"fen","value":"5","usage":{"input_tokens":"1000000","output_tokens":"200000","cached_tokens":"800000"}}
+```
+
+```bash
+python3 unit_converter.py --input-file requests.jsonl --format json
+```
+
+价格、汇率和用量可以放在 JSON 或 TOML 配置中，并通过 `--config` 使用。命令行参数优先级高于配置文件：
+
+```toml
+version = "pricing-2026-08"
+balance_per_yuan = "1.2"
+usd_cny_rate = "7.0"
+
+[chatgpt_profile]
+input_price = "5"
+output_price = "30"
+cached_price = "0.5"
+```
+
+```bash
+python3 unit_converter.py --config settings.toml --multiplier 0.05
+```
+
+## Web API
+
+项目提供零依赖的本地 HTTP 适配器，适合先做内部工具或前端原型：
+
+```bash
+python3 unit_converter.py --serve --host 127.0.0.1 --port 8787
+```
+
+接口包括：
+
+- `GET /health`
+- `GET /api/v1/profiles`
+- `POST /api/v1/convert`
+- `POST /api/v1/compare`
+
+`POST /api/v1/convert` 的请求体与 JSON CLI 相同，例如：
+
+```json
+{
+  "mode": "multiplier",
+  "value": "0.05",
+  "balance_per_yuan": "1",
+  "usage": {
+    "input_tokens": "1000000",
+    "output_tokens": "200000",
+    "cached_tokens": "800000"
+  }
+}
+```
+
+Web API 默认只监听本机地址，公网部署前应放在反向代理或 FastAPI/ASGI 服务后，并补充认证、限流、日志和价格更新策略。
+
 ## 测试
 
 ```bash

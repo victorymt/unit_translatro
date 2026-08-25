@@ -1,0 +1,41 @@
+"""Public package API for embedding the converter in other applications."""
+
+from converter_core import (  # noqa: F401
+    ChannelCost,
+    ConversionValidationError,
+    ConversionRequest,
+    ConversionResult,
+    DEEPSEEK_PRICE_PROFILES,
+    TokenPriceProfile,
+    TokenUsage,
+    calculate_conversion,
+    channel_cost_comparison,
+    fen_from_multiplier,
+    fen_from_token_cost,
+    fen_from_token_cost_for_usage,
+    multiplier_from_fen,
+    official_token_cost_usd,
+    official_token_cost_usd_for_usage,
+    token_cost_yuan,
+    token_cost_yuan_for_usage,
+)
+
+__all__ = [
+    "ChannelCost",
+    "ConversionValidationError",
+    "ConversionRequest",
+    "ConversionResult",
+    "DEEPSEEK_PRICE_PROFILES",
+    "TokenPriceProfile",
+    "TokenUsage",
+    "calculate_conversion",
+    "channel_cost_comparison",
+    "fen_from_multiplier",
+    "fen_from_token_cost",
+    "fen_from_token_cost_for_usage",
+    "multiplier_from_fen",
+    "official_token_cost_usd",
+    "official_token_cost_usd_for_usage",
+    "token_cost_yuan",
+    "token_cost_yuan_for_usage",
+]

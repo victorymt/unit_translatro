@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unit-translator"
+version = "1.0.0"
+description = "ChatGPT relay multiplier and token cost converter"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "unit-translator contributors"}]
+dependencies = []
+
+[project.scripts]
+unit-translator = "unit_converter:main"
+unit-translator-web = "web_api:run_server"
+
+[tool.setuptools]
+py-modules = [
+  "unit_converter",
+  "converter_core",
+  "converter_io",
+  "batch_processing",
+  "app_config",
+  "web_api",
+]
+
+[tool.setuptools.packages.find]
+include = ["unit_translator*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
