@@ -369,7 +369,8 @@ def channel_cost_comparison(
             provider="ChatGPT relay", model="custom",
         )
     ]
-    for profile in profiles or DEEPSEEK_PRICE_PROFILES:
+    selected_profiles = DEEPSEEK_PRICE_PROFILES if profiles is None else profiles
+    for profile in selected_profiles:
         usd = official_token_cost_usd_for_usage(usage, profile)
         yuan = usd * exchange_rate
         relative = yuan / chatgpt_cost if chatgpt_cost else None

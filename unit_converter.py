@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""Convert relay-station multipliers and account costs."""
+"""CLI compatibility facade for relay-cost conversion.
+
+Calculation stays in :mod:`converter_core`; interactive use is provided by the
+Textual application in :mod:`tui_app`. Importing this module remains safe for
+batch and web callers because Textual is imported only when the TUI starts.
+"""
 
 from __future__ import annotations
 
 import argparse
-import curses
 import unicodedata
-from dataclasses import dataclass, field
-from decimal import Decimal
+from pathlib import Path
 from typing import Sequence
 
-# Keep the historical ``unit_converter`` module as a compatibility facade.  The
-# implementation now lives in the dependency-free domain module.
-from converter_core import (  # noqa: E402  (compatibility facade import)
-    _as_decimal,
-    _non_negative,
-    _positive,
+# Keep historical unit_converter exports available for scripts and existing
+# tests while the implementation lives in the dependency-free domain module.
+from converter_core import (  # noqa: F401
+    DEFAULT_CACHED_PRICE,
+    DEFAULT_INPUT_PRICE,
+    DEFAULT_OUTPUT_PRICE,
+    DEFAULT_USAGE,
+    DEFAULT_USD_CNY_RATE,
+    DEEPSEEK_PRICE_PROFILES,
     ONE_HUNDRED,
     ONE_HUNDRED_MILLION,
     ONE_MILLION,
@@ -23,18 +29,15 @@ from converter_core import (  # noqa: E402  (compatibility facade import)
     SAMPLE_INPUT_TOKENS,
     SAMPLE_OUTPUT_TOKENS,
     SAMPLE_TOTAL_TOKENS,
-    DEFAULT_CACHED_PRICE,
-    DEFAULT_INPUT_PRICE,
-    DEFAULT_OUTPUT_PRICE,
-    DEFAULT_USAGE,
-    DEFAULT_USD_CNY_RATE,
-    DEEPSEEK_PRICE_PROFILES,
     ChannelCost,
     ConversionRequest,
     ConversionResult,
     ConversionValidationError,
     TokenPriceProfile,
     TokenUsage,
+    _as_decimal,
+    _non_negative,
+    _positive,
     calculate_conversion,
     channel_cost_comparison,
     fen_from_multiplier,
@@ -48,9 +51,17 @@ from converter_core import (  # noqa: E402  (compatibility facade import)
     token_cost_yuan,
     token_cost_yuan_for_usage,
 )
-from converter_io import render_result
+from app_config import load_settings
 from batch_processing import batch_to_csv, batch_to_json
-from app_config import Settings, load_settings
+from converter_io import render_result
+
+
+def _display_width(text: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in text)
+
+
+def _pad_display(text: str, width: int) -> str:
+    return text + " " * max(0, width - _display_width(text))
 
 
 def _format_channel_cost(row: ChannelCost, total_width: int | None = None) -> str:
@@ -62,39 +73,11 @@ def _format_channel_cost(row: ChannelCost, total_width: int | None = None) -> st
         relative = "--"
     else:
         relative = f"{format_decimal(row.relative_to_chatgpt)}x"
-    name_width = max(
-        22,
-        (total_width - 43) if total_width is not None else 22,
-    )
+    name_width = max(22, (total_width - 43) if total_width is not None else 22)
     return (
         f"{_pad_display(row.name, name_width)} "
         f"{usd:>12} {yuan:>16} {relative:>12}"
     )
-
-
-def _format_compact_channel_cost(
-    row: ChannelCost, total_width: int | None = None
-) -> str:
-    names = {
-        "DeepSeek V4 Flash 谷": "DeepSeek Flash谷",
-        "DeepSeek V4 Flash 峰": "DeepSeek Flash峰",
-        "DeepSeek V4 Pro 谷": "DeepSeek Pro谷",
-        "DeepSeek V4 Pro 峰": "DeepSeek Pro峰",
-    }
-    name = names.get(row.name, row.name)
-    usd = "--" if row.usd is None else f"${format_decimal(row.usd, 4)}"
-    yuan = f"{format_decimal(row.yuan, 4)}元"
-    if row.usd is None:
-        relative = "基准"
-    elif row.relative_to_chatgpt is None:
-        relative = "--"
-    else:
-        relative = f"{format_decimal(row.relative_to_chatgpt, 4)}x"
-    name_width = max(
-        17,
-        (total_width - 31) if total_width is not None else 17,
-    )
-    return f"{_pad_display(name, name_width)} {usd:>9} {yuan:>10} {relative:>9}"
 
 
 def _print_channel_comparison(rows: tuple[ChannelCost, ...]) -> None:
@@ -106,7 +89,7 @@ def _print_channel_comparison(rows: tuple[ChannelCost, ...]) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="换算 ChatGPT 中转成本，并与 DeepSeek 官方 API 成本对比；不传换算参数时打开终端界面。"
+        description="换算 ChatGPT 中转成本，并与配置的官方 API 渠道成本对比；不传换算参数时打开终端工作台。"
     )
     source = parser.add_mutually_exclusive_group()
     source.add_argument("-m", "--multiplier", help="中转站倍率，例如 0.05")
@@ -187,15 +170,21 @@ def _run_cli(args: argparse.Namespace) -> int:
             "充值比例",
         )
         input_price = _non_negative(
-            args.token_price if args.token_price is not None else settings.chatgpt_profile.input_price,
+            args.token_price
+            if args.token_price is not None
+            else settings.chatgpt_profile.input_price,
             "ChatGPT 输入 Token 官方价",
         )
         output_price = _non_negative(
-            args.output_price if args.output_price is not None else settings.chatgpt_profile.output_price,
+            args.output_price
+            if args.output_price is not None
+            else settings.chatgpt_profile.output_price,
             "ChatGPT 输出 Token 官方价",
         )
         cached_price = _non_negative(
-            args.cache_price if args.cache_price is not None else settings.chatgpt_profile.cached_price,
+            args.cache_price
+            if args.cache_price is not None
+            else settings.chatgpt_profile.cached_price,
             "ChatGPT 缓存 Token 官方价",
         )
         usd_cny_rate = _positive(
@@ -265,422 +254,11 @@ def _run_cli(args: argparse.Namespace) -> int:
     return 0
 
 
-@dataclass
-class TuiState:
-    mode: str = "multiplier"
-    value: str = "0.05"
-    ratio: str = "1"
-    token_price: str = "5"
-    output_price: str = "30"
-    cached_price: str = "0.5"
-    usd_cny_rate: str = "7.2"
-    active_field: int = 0
-    replace_on_type: bool = True
-    usage: TokenUsage = field(default_factory=lambda: DEFAULT_USAGE)
-    comparison_profiles: tuple[TokenPriceProfile, ...] = field(
-        default_factory=lambda: DEEPSEEK_PRICE_PROFILES
-    )
+def launch_tui(config_path: str | Path | None = None) -> int:
+    """Launch the Textual workbench with a default or explicit editable config."""
+    from tui_app import launch_tui as run_textual_tui
 
-    @classmethod
-    def from_settings(cls, settings: Settings) -> "TuiState":
-        profile = settings.chatgpt_profile
-        return cls(
-            ratio=str(settings.balance_per_yuan),
-            token_price=str(profile.input_price),
-            output_price=str(profile.output_price),
-            cached_price=str(profile.cached_price),
-            usd_cny_rate=str(settings.current_exchange_rate().value),
-            usage=settings.usage,
-            comparison_profiles=settings.comparison_profiles,
-        )
-
-    def toggle_mode(self, direction: int = 1) -> None:
-        modes = ("multiplier", "fen", "token_cost")
-        defaults = ("0.05", "5", "5")
-        index = (modes.index(self.mode) + direction) % len(modes)
-        self.mode = modes[index]
-        self.value = defaults[index]
-        self.active_field = 0
-        self.replace_on_type = True
-
-    def select_next_field(self) -> None:
-        self.active_field = (self.active_field + 1) % 6
-        self.replace_on_type = True
-
-    def select_previous_field(self) -> None:
-        self.active_field = (self.active_field - 1) % 6
-        self.replace_on_type = True
-
-    def edit(self, key: int) -> None:
-        field = (
-            "value",
-            "ratio",
-            "token_price",
-            "output_price",
-            "cached_price",
-            "usd_cny_rate",
-        )[self.active_field]
-        current = getattr(self, field)
-        if key in (curses.KEY_BACKSPACE, 127, 8):
-            setattr(self, field, "" if self.replace_on_type else current[:-1])
-            self.replace_on_type = False
-            return
-        if key == 21:  # Ctrl+U
-            setattr(self, field, "")
-            self.replace_on_type = False
-            return
-        if 0 <= key <= 255 and chr(key) in "0123456789.":
-            character = chr(key)
-            if self.replace_on_type:
-                current = ""
-            if character == "." and "." in current:
-                return
-            if character == "." and not current:
-                current = "0"
-            if len(current) < 18:
-                setattr(self, field, current + character)
-                self.replace_on_type = False
-
-
-def _display_width(text: str) -> int:
-    return sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in text)
-
-
-def _pad_display(text: str, width: int) -> str:
-    return text + " " * max(0, width - _display_width(text))
-
-
-def _centered_x(width: int, text: str) -> int:
-    return max(0, (width - _display_width(text)) // 2)
-
-
-def _result_for(
-    state: TuiState,
-) -> tuple[str, str, str, tuple[ChannelCost, ...], str]:
-    if not all(
-        (
-            state.value,
-            state.ratio,
-            state.token_price,
-            state.output_price,
-            state.cached_price,
-            state.usd_cny_rate,
-        )
-    ):
-        return "--", "", "", (), ""
-    try:
-        result = calculate_conversion(
-            ConversionRequest(
-                mode=state.mode,
-                value=state.value,
-                balance_per_yuan=state.ratio,
-                usage=state.usage,
-                chatgpt_profile=TokenPriceProfile(
-                    "ChatGPT 中转",
-                    state.token_price,
-                    state.output_price,
-                    state.cached_price,
-                    provider="ChatGPT relay",
-                    model="custom",
-                ),
-                usd_cny_rate=state.usd_cny_rate,
-                comparison_profiles=state.comparison_profiles,
-            )
-        )
-        primary = (
-            f"{format_decimal(result.multiplier)}x"
-            if state.mode != "multiplier"
-            else f"{format_decimal(result.fen_per_dollar)} 分/刀"
-        )
-        secondary = (
-            f"{format_decimal(result.fen_per_dollar)} 分/刀"
-            if state.mode == "token_cost"
-            else f"{format_decimal(result.fen_per_dollar / ONE_HUNDRED)} 元/刀"
-        )
-        return (
-            primary,
-            secondary,
-            f"{format_decimal(result.token_cost_yuan)} 元",
-            result.comparison,
-            "",
-        )
-    except ValueError as exc:
-        return "--", "", "", (), str(exc)
-
-
-def _addstr(
-    screen: curses.window, y: int, x: int, text: str, attributes: int = 0
-) -> None:
-    height, width = screen.getmaxyx()
-    if y < 0 or y >= height or x < 0 or x >= width - 1:
-        return
-    try:
-        screen.addnstr(y, x, text, max(0, width - x - 1), attributes)
-    except curses.error:
-        pass
-
-
-def _init_colors() -> tuple[int, int, int]:
-    if not curses.has_colors():
-        return curses.A_BOLD, curses.A_BOLD, curses.A_BOLD
-    curses.start_color()
-    curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_CYAN, -1)
-    curses.init_pair(2, curses.COLOR_GREEN, -1)
-    curses.init_pair(3, curses.COLOR_RED, -1)
-    return curses.color_pair(1), curses.color_pair(2), curses.color_pair(3)
-
-
-def _draw_tui(screen: curses.window, state: TuiState) -> None:
-    screen.erase()
-    height, width = screen.getmaxyx()
-    accent, success, error_color = _init_colors()
-
-    if height < 22 or width < 60:
-        message = "终端窗口至少需要 60 x 22"
-        _addstr(screen, height // 2, _centered_x(width, message), message, error_color)
-        screen.refresh()
-        return
-
-    compact = height < 34 or width < 80
-    panel_width = width - 4
-    left = (width - panel_width) // 2
-    top = max(0, (height - (22 if compact else 34)) // 2)
-    title_row = top + (0 if compact else 2)
-    modes_row = top + (2 if compact else 6)
-    divider_row = top + (3 if compact else 8)
-    field_rows = tuple(
-        top + row
-        for row in ((5, 6, 7, 8, 9, 10) if compact else (10, 12, 14, 16, 18, 20))
-    )
-    mix_row = top + (11 if compact else 22)
-    result_row = top + (13 if compact else 24)
-    cost_row = top + (14 if compact else 26)
-    comparison_title_row = top + (16 if compact else 28)
-    comparison_start_row = top + (17 if compact else 29)
-
-    title = "ChatGPT 中转 / DeepSeek 官方成本"
-    _addstr(
-        screen,
-        title_row,
-        _centered_x(width, title),
-        title,
-        curses.A_BOLD | accent,
-    )
-    if not compact:
-        subtitle = "同一用量配比下的渠道成本对比"
-        _addstr(screen, 4, _centered_x(width, subtitle), subtitle, curses.A_DIM)
-
-    if compact:
-        forward = " 固定倍率->成本 "
-        reverse = " 固定成本->倍率 "
-        token_cost_mode = " 固定1亿成本->倍率 "
-    else:
-        forward = " 固定倍率->账号成本 "
-        reverse = " 固定账号成本->倍率 "
-        token_cost_mode = " 固定1亿成本->倍率 "
-    modes_width = sum(
-        _display_width(mode) for mode in (forward, reverse, token_cost_mode)
-    ) + 6
-    modes_left = (width - modes_width) // 2
-    forward_attr = curses.A_REVERSE if state.mode == "multiplier" else curses.A_NORMAL
-    reverse_attr = curses.A_REVERSE if state.mode == "fen" else curses.A_NORMAL
-    _addstr(screen, modes_row, modes_left, forward, forward_attr)
-    _addstr(
-        screen,
-        modes_row,
-        modes_left + _display_width(forward) + 3,
-        reverse,
-        reverse_attr,
-    )
-    token_cost_attr = (
-        curses.A_REVERSE if state.mode == "token_cost" else curses.A_NORMAL
-    )
-    _addstr(
-        screen,
-        modes_row,
-        modes_left + _display_width(forward) + _display_width(reverse) + 6,
-        token_cost_mode,
-        token_cost_attr,
-    )
-
-    try:
-        screen.hline(divider_row, left, curses.ACS_HLINE, panel_width)
-    except curses.error:
-        pass
-
-    field_options = {
-        "multiplier": ("中转站倍率", "x"),
-        "fen": ("账号成本", "分/刀"),
-        "token_cost": ("GPT 1 亿实付" if compact else "ChatGPT 1 亿实付", "元"),
-    }
-    label, unit = field_options[state.mode]
-    _addstr(screen, field_rows[0], left + 2, label)
-    value_attr = curses.A_REVERSE | curses.A_BOLD if state.active_field == 0 else curses.A_BOLD
-    value_field = f" {state.value or ' '} "
-    field_x = left + max(24 if compact else 27, panel_width // 2)
-    _addstr(screen, field_rows[0], field_x, value_field, value_attr)
-    _addstr(
-        screen,
-        field_rows[0],
-        field_x + _display_width(value_field) + 1,
-        unit,
-    )
-
-    ratio_label = "1 元充值获得"
-    _addstr(screen, field_rows[1], left + 2, ratio_label)
-    ratio_attr = curses.A_REVERSE | curses.A_BOLD if state.active_field == 1 else curses.A_BOLD
-    ratio_field = f" {state.ratio or ' '} "
-    _addstr(screen, field_rows[1], field_x, ratio_field, ratio_attr)
-    _addstr(
-        screen,
-        field_rows[1],
-        field_x + _display_width(ratio_field) + 1,
-        "刀额度",
-    )
-
-    price_fields = (
-        (field_rows[2], "ChatGPT 输入价/百万", state.token_price),
-        (field_rows[3], "ChatGPT 输出价/百万", state.output_price),
-        (field_rows[4], "ChatGPT 缓存价/百万", state.cached_price),
-    )
-    for index, (row, price_label, price) in enumerate(price_fields, start=2):
-        _addstr(screen, row, left + 2, price_label)
-        price_attr = (
-            curses.A_REVERSE | curses.A_BOLD
-            if state.active_field == index
-            else curses.A_BOLD
-        )
-        price_field = f" {price or ' '} "
-        _addstr(screen, row, field_x, price_field, price_attr)
-        _addstr(
-            screen,
-            row,
-            field_x + _display_width(price_field) + 1,
-            "刀",
-        )
-
-    exchange_label = "美元兑人民币汇率"
-    _addstr(screen, field_rows[5], left + 2, exchange_label)
-    exchange_attr = (
-        curses.A_REVERSE | curses.A_BOLD
-        if state.active_field == 5
-        else curses.A_BOLD
-    )
-    exchange_field = f" {state.usd_cny_rate or ' '} "
-    _addstr(screen, field_rows[5], field_x, exchange_field, exchange_attr)
-    _addstr(
-        screen,
-        field_rows[5],
-        field_x + _display_width(exchange_field) + 1,
-        "元/USD",
-    )
-
-    mix = (
-        "配比: 入12.73M / 出381.68K / 缓存157.67M"
-        if compact
-        else "配比: 输入 12.73M / 输出 381.68K / 缓存 157.67M"
-    )
-    _addstr(screen, mix_row, left + 2, mix, curses.A_DIM)
-
-    result, secondary, hundred_million_cost, comparison, error = _result_for(state)
-    result_label = "换算结果"
-    _addstr(screen, result_row, left + 2, result_label, curses.A_DIM)
-    if compact:
-        result_text = f"{result} / {secondary}" if secondary else result
-        _addstr(screen, result_row, left + 14, result_text, curses.A_BOLD | success)
-    else:
-        _addstr(screen, result_row, field_x, result, curses.A_BOLD | success)
-        if secondary:
-            _addstr(screen, result_row + 1, field_x, secondary, curses.A_DIM)
-    if hundred_million_cost:
-        cost_label = "GPT 1 亿 Token" if compact else "ChatGPT 1 亿 Token"
-        _addstr(screen, cost_row, left + 2, cost_label, curses.A_DIM)
-        _addstr(
-            screen,
-            cost_row,
-            left + (16 if compact else 27),
-            hundred_million_cost,
-            curses.A_BOLD | success,
-        )
-    if comparison:
-        comparison_title = (
-            "1亿成本: USD / CNY / 成本倍数"
-            if compact
-            else "1 亿混合 Token 渠道对比: USD / CNY / 相对成本倍数"
-        )
-        _addstr(
-            screen,
-            comparison_title_row,
-            left + 2,
-            comparison_title,
-            curses.A_DIM,
-        )
-        comparison_width = panel_width - 4
-        for row, channel_cost in enumerate(comparison, start=comparison_start_row):
-            attributes = (
-                curses.A_BOLD | success
-                if row == comparison_start_row
-                else curses.A_NORMAL
-            )
-            _addstr(
-                screen,
-                row,
-                left + 2,
-                (
-                    _format_compact_channel_cost(channel_cost, comparison_width)
-                    if compact
-                    else _format_channel_cost(channel_cost, comparison_width)
-                ),
-                attributes,
-            )
-    if error:
-        _addstr(screen, cost_row, left + 2, error, error_color)
-
-    screen.refresh()
-
-
-def _curses_main(
-    screen: curses.window,
-    settings: Settings | None = None,
-) -> tuple[str, str, str, tuple[ChannelCost, ...]] | None:
-    state = TuiState.from_settings(settings) if settings is not None else TuiState()
-    curses.curs_set(0)
-    screen.keypad(True)
-
-    while True:
-        _draw_tui(screen, state)
-        key = screen.getch()
-        if key in (ord("q"), ord("Q"), 27):
-            return None
-        if key == curses.KEY_LEFT:
-            state.toggle_mode(-1)
-        elif key in (curses.KEY_RIGHT, ord("m"), ord("M")):
-            state.toggle_mode()
-        elif key == curses.KEY_UP:
-            state.select_previous_field()
-        elif key in (9, curses.KEY_DOWN):
-            state.select_next_field()
-        elif key in (10, 13, curses.KEY_ENTER):
-            result, secondary, hundred_million_cost, comparison, error = _result_for(
-                state
-            )
-            if not error and result != "--":
-                return result, secondary, hundred_million_cost, comparison
-        else:
-            state.edit(key)
-
-
-def launch_tui(settings: Settings | None = None) -> int:
-    result = curses.wrapper(lambda screen: _curses_main(screen, settings))
-    if result is not None:
-        primary, secondary, hundred_million_cost, comparison = result
-        print(f"换算结果: {primary}")
-        if secondary:
-            print(f"等价成本: {secondary}")
-        print(f"ChatGPT 中转 1 亿混合 Token: {hundred_million_cost}")
-        _print_channel_comparison(comparison)
-    return 0
+    return run_textual_tui(config_path)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -700,8 +278,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         return _run_cli(args)
     try:
-        return launch_tui(load_settings(args.config))
-    except (ValueError, curses.error, OSError) as exc:
+        return launch_tui(args.config)
+    except (ValueError, OSError) as exc:
         parser.error(f"无法启动终端界面: {exc}")
 
 

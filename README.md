@@ -1,41 +1,43 @@
 # ChatGPT 中转 / DeepSeek 官方成本换算器
 
-用于换算 ChatGPT 账号的“几分 1 刀”成本与中转站倍率，并将同一份 Token 用量与 DeepSeek 官方 API 直付成本进行对比。项目只有 Python 标准库依赖。
+用于换算 ChatGPT 账号的“几分 1 刀”成本与中转站倍率，并将同一份 Token 用量与可配置的官方 API 渠道直付成本进行对比。交互终端界面使用 Textual，项目依赖由 `uv` 管理。
 
-## 终端界面
+## 终端工作台
 
 ```bash
-python3 unit_converter.py
+uv sync
+uv run unit-translator
 ```
 
-这是一个 `curses` 交互界面，支持倍率、几分一刀和 ChatGPT 中转 1 亿 Token 成本三种方向的实时换算。可以修改充值比例、ChatGPT 每百万输入/输出/缓存 Token 的官方价格，以及美元兑人民币汇率。默认按 `1 元 = 1 刀站内额度`、ChatGPT 输入 `5 刀`、输出 `30 刀`、缓存 `0.5 刀`、`1 USD = 7.2 CNY` 计算。
+也可以使用 `uv run python unit_converter.py` 直接运行源码。这是一个 Textual 工作台，有“换算”和“渠道”两个视图：
 
-界面下方始终并列显示 ChatGPT 中转、DeepSeek V4 Flash 峰谷价和 DeepSeek V4 Pro 峰谷价。终端窗口至少需要 `60 x 22`；低于 `80 x 34` 时自动使用紧凑布局并缩短表格小数位，面板宽度和垂直位置会随窗口尺寸自动调整。
+- 换算页实时计算倍率、账号成本、ChatGPT 中转的 1 亿混合 Token 成本，并展示所有比较渠道。充值比例、ChatGPT 输入/输出/缓存价和美元汇率在这里编辑。
+- 渠道页管理比较渠道，可新建、编辑和删除名称、提供商、模型、三类单价、生效日期、来源和版本。渠道单价固定为 `USD / 1M tokens`；ChatGPT 中转价格不在渠道列表中重复维护。
 
-- `←` / `→` 或 `M`：切换换算方向
-- `Tab` / `↑` / `↓`：切换换算值、充值比例、ChatGPT 单价和美元汇率
-- 数字、`.`、退格、`Ctrl+U`：编辑当前输入项
-- `Enter`：确认并在退出界面后打印结果
-- `Q` 或 `Esc`：退出
+默认按 `1 元 = 1 刀站内额度`、ChatGPT 输入 `5 刀`、输出 `30 刀`、缓存 `0.5 刀`、`1 USD = 7.2 CNY` 计算。宽终端使用双栏工作台；窄终端会将换算面板纵向排列，可在 `80 x 24` 中滚动操作。
+
+`Ctrl+S` 保存、`Ctrl+D` 还原未保存修改、`Ctrl+Q` 退出。退出、还原和删除渠道均会要求确认。
+
+首次启动时，工作台会从内置价格目录生成可编辑的配置。未传 `--config` 时，目标路径由 `platformdirs` 决定（Linux 通常为 `~/.config/unit-translator/settings.toml`，也会遵从 `$XDG_CONFIG_HOME`）；文件只会在点击保存后创建。传入 `--config path/to/settings.toml` 或 `--config path/to/settings.json` 可改用指定文件，指定文件不存在时同样以默认配置打开，直到保存才创建。
 
 ## 命令行
 
 倍率换算为几分 1 刀：
 
 ```bash
-python3 unit_converter.py --multiplier 0.05
+uv run unit-translator --multiplier 0.05
 ```
 
 几分 1 刀换算为倍率：
 
 ```bash
-python3 unit_converter.py --fen 5
+uv run unit-translator --fen 5
 ```
 
 根据 ChatGPT 中转 1 亿混合 Token 的实付成本反算倍率和几分一刀：
 
 ```bash
-python3 unit_converter.py --token-cost 5
+uv run unit-translator --token-cost 5
 ```
 
 默认价格与充值比例下，结果约为 `0.05547187x`、`5.54718668 分/刀`。
@@ -51,13 +53,13 @@ python3 unit_converter.py --token-cost 5
 如果平台充值 1 元可获得 1.2 刀站内额度：
 
 ```bash
-python3 unit_converter.py --multiplier 0.12 --ratio 1.2
+uv run unit-translator --multiplier 0.12 --ratio 1.2
 ```
 
 覆盖 ChatGPT 的官方 Token 价格，例如每百万输入、输出、缓存 Token 分别为 2、16、0.2 刀：
 
 ```bash
-python3 unit_converter.py --fen 5 --token-price 2 --output-price 16 --cache-price 0.2
+uv run unit-translator --fen 5 --token-price 2 --output-price 16 --cache-price 0.2
 ```
 
 `--token-price` 继续兼容原命令，也可以写成 `--input-price`。
@@ -65,7 +67,7 @@ python3 unit_converter.py --fen 5 --token-price 2 --output-price 16 --cache-pric
 自定义美元兑人民币汇率：
 
 ```bash
-python3 unit_converter.py --multiplier 0.05 --usd-cny-rate 7
+uv run unit-translator --multiplier 0.05 --usd-cny-rate 7
 ```
 
 默认 `0.05x` 和 `7.2` 汇率下，渠道对比结果为：
@@ -141,8 +143,8 @@ print(result.token_cost_yuan)
 使用 `--format json` 或 `--format csv` 获取稳定的机器可读结果：
 
 ```bash
-python3 unit_converter.py --multiplier 0.05 --format json
-python3 unit_converter.py --fen 5 --format csv
+uv run unit-translator --multiplier 0.05 --format json
+uv run unit-translator --fen 5 --format csv
 ```
 
 批处理输入支持 JSONL 和 CSV。JSONL 每行是一个转换请求，例如：
@@ -153,7 +155,7 @@ python3 unit_converter.py --fen 5 --format csv
 ```
 
 ```bash
-python3 unit_converter.py --input-file requests.jsonl --format json
+uv run unit-translator --input-file requests.jsonl --format json
 ```
 
 价格、汇率和用量可以放在 JSON 或 TOML 配置中，并通过 `--config` 使用。命令行参数优先级高于配置文件：
@@ -170,25 +172,25 @@ cached_price = "0.5"
 ```
 
 ```bash
-python3 unit_converter.py --config settings.toml --multiplier 0.05
+uv run unit-translator --config settings.toml --multiplier 0.05
 ```
 
-同一个配置文件也会用于终端界面、JSONL/CSV 批处理和本地 Web API：
+将同一个已保存的配置显式传给工作台、JSONL/CSV 批处理或本地 Web API：
 
 ```bash
-python3 unit_converter.py --config settings.toml
-python3 unit_converter.py --config settings.toml --input-file requests.jsonl --format json
-python3 unit_converter.py --serve --config settings.toml --host 127.0.0.1 --port 8787
+uv run unit-translator --config settings.toml
+uv run unit-translator --config settings.toml --input-file requests.jsonl --format json
+uv run unit-translator --serve --config settings.toml --host 127.0.0.1 --port 8787
 ```
 
-配置中的 `usage`、`chatgpt_profile`、`comparison_profiles` 和 `usd_cny_rate` 会作为各入口的默认值；请求或命令行显式提供的值优先。价格目录快照和汇率都通过可替换 provider 解析，计算结果仍保持显式汇率和精确字符串输出。
+配置中的 `usage`、`chatgpt_profile`、`comparison_profiles` 和 `usd_cny_rate` 会作为各入口的默认值；请求或命令行显式提供的值优先。交互工作台可以从不存在的 JSON/TOML 文件开始编辑；批处理和 Web API 对不存在的 `--config` 仍会报错，避免自动生成配置掩盖脚本错误。价格目录快照和汇率都通过可替换 provider 解析，计算结果仍保持显式汇率和精确字符串输出。
 
 ## Web API
 
 项目提供零依赖的本地 HTTP 适配器，适合先做内部工具或前端原型：
 
 ```bash
-python3 unit_converter.py --serve --host 127.0.0.1 --port 8787
+uv run unit-translator --serve --host 127.0.0.1 --port 8787
 ```
 
 接口包括：
@@ -222,5 +224,5 @@ Web API 默认只监听本机地址，公网部署前应放在反向代理或 Fa
 ## 测试
 
 ```bash
-python3 -m unittest discover -s tests -v
+uv run python -m unittest discover -s tests -v
 ```

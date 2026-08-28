@@ -36,8 +36,8 @@ class PricingCatalog:
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "PricingCatalog":
         raw_profiles = data.get("profiles")
-        if not isinstance(raw_profiles, list) or not raw_profiles:
-            raise ValueError("价格目录的 profiles 必须是非空数组")
+        if not isinstance(raw_profiles, list):
+            raise ValueError("价格目录的 profiles 必须是数组")
         profiles: list[TokenPriceProfile] = []
         for index, item in enumerate(raw_profiles):
             if not isinstance(item, dict):

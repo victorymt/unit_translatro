@@ -48,13 +48,21 @@ class Settings:
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "Settings":
-        profiles_data = data.get("comparison_profiles") or data.get("profiles")
+        if "comparison_profiles" in data:
+            profiles_data = data["comparison_profiles"]
+        elif "profiles" in data:
+            profiles_data = data["profiles"]
+        else:
+            profiles_data = None
         catalog = load_pricing_catalog()
-        profiles = (
-            tuple(profile_from_mapping(item) for item in profiles_data)
-            if profiles_data
-            else catalog.profiles
-        )
+        if profiles_data is None:
+            profiles = catalog.profiles
+        else:
+            if not isinstance(profiles_data, (list, tuple)):
+                raise ValueError("comparison_profiles 必须是数组")
+            if any(not isinstance(item, Mapping) for item in profiles_data):
+                raise ValueError("comparison_profiles 中每项必须是对象")
+            profiles = tuple(profile_from_mapping(item) for item in profiles_data)
         return cls(
             balance_per_yuan=str(data.get("balance_per_yuan", data.get("ratio", "1"))),
             chatgpt_profile=chatgpt_profile_from_mapping(
