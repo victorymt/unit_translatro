@@ -173,6 +173,9 @@ class DomainAndAdapterTests(unittest.TestCase):
         try:
             with urlopen(f"{base_url}/health") as response:
                 health = json.loads(response.read())
+                self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+                self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+                self.assertEqual(response.headers["Cache-Control"], "no-store")
             self.assertEqual(health["schema_version"], "1")
             self.assertEqual(health["status"], "ok")
             request = Request(
@@ -258,12 +261,18 @@ class DomainAndAdapterTests(unittest.TestCase):
             with urlopen(f"{base_url}/?from=test") as response:
                 html = response.read().decode()
                 self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers["Cache-Control"], "no-cache")
+                self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
                 self.assertIn("Token 成本换算", html)
                 self.assertIn("/assets/app.js", html)
+                self.assertIn('id="input-tokens" inputmode="decimal" value="7453961.104025"', html)
+                self.assertIn('id="cached-tokens" inputmode="decimal" value="92322548.882292"', html)
             with urlopen(f"{base_url}/assets/app.js") as response:
                 javascript = response.read().decode()
                 self.assertEqual(response.status, 200)
                 self.assertIn("/api/v1/convert", javascript)
+                self.assertIn('token_cost: "5"', javascript)
+                self.assertIn("function displayNumber", javascript)
             with self.assertRaises(HTTPError) as context:
                 urlopen(f"{base_url}/assets/missing.css")
             self.assertEqual(context.exception.code, 404)

@@ -217,6 +217,8 @@ uv run unit-translator --serve --host 127.0.0.1 --port 8787
 
 Web API 默认只监听本机地址，公网部署前应放在反向代理或 FastAPI/ASGI 服务后，并补充认证、限流、日志和价格更新策略。
 
+生产部署的 systemd、Nginx、安全边界和健康检查示例见 [`docs/deployment.md`](docs/deployment.md)。内置服务会返回基础浏览器安全头，但认证、TLS、限流和公网访问日志仍由反向代理负责。
+
 价格目录位于 `config/default_profiles.json`，每条记录包含 provider、model、三类 Token 单价、来源、生效日期和版本。Web API 会从目录读取 `/api/v1/profiles`，也可通过 `create_server(pricing_catalog_path=...)` 注入另一份目录；请求中显式提供 `comparison_profiles` 时仍可做临时比较。`as_of=YYYY-MM-DD` 查询可筛选生效日期不晚于指定日期的价格。
 
 汇率保持显式传入以保证换算可复现；`StaticExchangeRateProvider` 和 `ExchangeRateProvider` 已提供可替换边界，后续可以接入带缓存和来源信息的联网 provider，而无需修改领域计算函数。
@@ -225,4 +227,13 @@ Web API 默认只监听本机地址，公网部署前应放在反向代理或 Fa
 
 ```bash
 uv run python -m unittest discover -s tests -v
+```
+
+浏览器端到端用例位于 `tests/browser/`，覆盖桌面与 `390 x 844` 移动视口。开发机上的浏览器验收使用 BrowserOS MCP，不需要安装或下载 Chromium；先启动本地服务，再通过 BrowserOS MCP 打开 `http://127.0.0.1:8787` 完成交互检查。
+
+CI 中仍使用 Playwright 的隔离浏览器环境执行同一组用例：
+
+```bash
+npm ci
+npm run test:e2e
 ```

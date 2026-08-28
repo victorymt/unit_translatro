@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Input, Static, TabbedContent
+from textual.widgets import Button, Collapsible, Input, Static, TabbedContent
 
 from settings_store import load_settings_document
 from tui_app import ChannelEditorScreen, ConfirmScreen, UnitTranslatorApp
@@ -30,6 +30,28 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                     "9.01357804",
                     str(app.query_one("#result-token-cost", Static).content),
                 )
+
+    async def test_advanced_price_settings_stay_out_of_the_quick_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app, _ = self._app_for(directory)
+            async with app.run_test(size=(120, 40)) as pilot:
+                settings = app.query_one("#pricing-settings", Collapsible)
+                grid = app.query_one("#pricing-grid")
+                self.assertTrue(settings.collapsed)
+                self.assertEqual(grid.region.width, 0)
+                for input_id in (
+                    "balance-per-yuan",
+                    "usd-cny-rate",
+                    "chatgpt-input-price",
+                    "chatgpt-output-price",
+                    "chatgpt-cached-price",
+                ):
+                    self.assertEqual(len(app.query(f"#{input_id}")), 1)
+
+                settings.collapsed = False
+                await pilot.pause()
+                self.assertFalse(settings.collapsed)
+                self.assertGreater(grid.region.width, 0)
 
     async def test_channel_crud_uses_editor_and_delete_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -168,6 +190,10 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(app.query_one("#calculator-workspace").has_class("compact"))
                 self.assertEqual(
                     str(app.query_one("#result-multiplier", Static).content), "0.05x"
+                )
+                self.assertIn(
+                    "账号成本 5 分/刀",
+                    str(app.query_one("#compact-result", Static).content),
                 )
 
 

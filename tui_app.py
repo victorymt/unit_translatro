@@ -20,9 +20,8 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
+    Collapsible,
     DataTable,
-    Footer,
-    Header,
     Input,
     Label,
     Select,
@@ -51,6 +50,7 @@ from unit_translator.adapters.tui.calculator import (
 from unit_translator.adapters.tui.views import (
     compose_calculator,
     compose_channels,
+    compose_footer,
     compose_toolbar,
 )
 
@@ -96,14 +96,16 @@ class ChannelEditorScreen(ModalScreen[TokenPriceProfile | None]):
         title = "编辑比较渠道" if profile is not None else "新建比较渠道"
         with Container(id="channel-editor-dialog"):
             yield Label(title, classes="dialog-title")
-            yield Static("USD / 1M tokens", classes="channel-unit")
+            yield Static("价格单位：USD / 1M tokens", classes="channel-unit")
             with VerticalScroll(id="channel-editor-fields"):
+                yield Static("基础信息", classes="editor-section-heading")
                 yield Label("名称")
                 yield Input(profile.name if profile else "", id="channel-name")
                 yield Label("提供商")
                 yield Input(profile.provider if profile else "custom", id="channel-provider")
                 yield Label("模型")
                 yield Input(profile.model if profile else "", id="channel-model")
+                yield Static("计价", classes="editor-section-heading")
                 yield Label("输入价")
                 yield Input(
                     str(profile.input_price) if profile else "",
@@ -122,12 +124,20 @@ class ChannelEditorScreen(ModalScreen[TokenPriceProfile | None]):
                     id="channel-cached-price",
                     type="number",
                 )
-                yield Label("生效日期")
-                yield Input(profile.effective_at or "" if profile else "", id="channel-effective-at")
-                yield Label("来源")
-                yield Input(profile.source or "" if profile else "", id="channel-source")
-                yield Label("版本")
-                yield Input(profile.version or "" if profile else "", id="channel-version")
+                with Collapsible(
+                    title="来源与版本（可选）",
+                    collapsed=True,
+                    id="channel-source-settings",
+                ):
+                    yield Label("生效日期")
+                    yield Input(
+                        profile.effective_at or "" if profile else "",
+                        id="channel-effective-at",
+                    )
+                    yield Label("来源")
+                    yield Input(profile.source or "" if profile else "", id="channel-source")
+                    yield Label("版本")
+                    yield Input(profile.version or "" if profile else "", id="channel-version")
             yield Static("", id="channel-editor-error")
             with Horizontal(classes="dialog-actions"):
                 yield Button("取消", id="channel-cancel")
@@ -178,7 +188,7 @@ class ChannelEditorScreen(ModalScreen[TokenPriceProfile | None]):
 
 
 class UnitTranslatorApp(App[None]):
-    """Dense two-view TUI for calculation and comparison channel management."""
+    """Focused TUI for quick conversion and secondary channel management."""
 
     TITLE = "Unit Translator"
     SUB_TITLE = "成本换算工作台"
@@ -193,45 +203,90 @@ class UnitTranslatorApp(App[None]):
 
     CSS = """
     Screen {
-        background: #101820;
-        color: #e8edf2;
-    }
-
-    Header {
-        background: #152737;
-        color: #f4f8fb;
-    }
-
-    Footer {
-        background: #152737;
+        background: #0b1118;
+        color: #e7f0f3;
     }
 
     #workbench-toolbar {
         height: 3;
-        padding: 0 1;
-        background: #17212b;
+        padding: 0 2;
+        background: #11212c;
+    }
+
+    #workspace-brand {
+        width: 22;
+        height: 3;
+    }
+
+    #workspace-title {
+        color: #effbfc;
+        text-style: bold;
+    }
+
+    #workspace-subtitle {
+        color: #89a5b0;
     }
 
     #config-path {
         width: 1fr;
-        content-align: left middle;
-        color: #afc0cd;
+        content-align: right middle;
+        color: #9db2bd;
         overflow: hidden;
     }
 
     #dirty-indicator {
         width: 8;
         content-align: center middle;
-        color: #80cbc4;
+        color: #69d3c5;
     }
 
     #dirty-indicator.dirty {
         color: #ffd166;
     }
 
-    #workbench-toolbar Button {
+    Button {
         min-width: 8;
+        background: #243c4b;
+        color: #e7f0f3;
+        border: none;
+    }
+
+    Button:focus {
+        background: #317b7e;
+        color: #f7ffff;
+        text-style: bold;
+    }
+
+    Button.-primary {
+        background: #216d78;
+    }
+
+    Button.-success {
+        background: #236954;
+    }
+
+    Button.-error {
+        background: #783746;
+    }
+
+    #workbench-toolbar Button {
         margin-left: 1;
+    }
+
+    #shortcut-bar {
+        height: 1;
+        padding: 0 2;
+        background: #0e1a23;
+        color: #88a2ac;
+    }
+
+    #shortcut-bar Static {
+        width: 1fr;
+    }
+
+    #shortcut-hint {
+        width: 30;
+        content-align: right middle;
     }
 
     TabbedContent {
@@ -244,21 +299,26 @@ class UnitTranslatorApp(App[None]):
     }
 
     #calculator-workspace {
+        layout: vertical;
+        height: auto;
+    }
+
+    #calculator-overview {
         layout: horizontal;
         height: auto;
     }
 
-    #calculator-workspace.compact {
+    #calculator-workspace.compact #calculator-overview {
         layout: vertical;
     }
 
     #calculator-form {
-        width: 42;
-        min-width: 34;
+        width: 38;
+        min-width: 30;
         height: auto;
         padding: 1;
-        background: #17212b;
-        border: round #365064;
+        background: #12212c;
+        border: round #294555;
     }
 
     #calculator-workspace.compact #calculator-form {
@@ -271,8 +331,8 @@ class UnitTranslatorApp(App[None]):
         height: auto;
         margin-left: 1;
         padding: 1;
-        background: #17212b;
-        border: round #365064;
+        background: #12212c;
+        border: round #294555;
     }
 
     #calculator-workspace.compact #calculator-output {
@@ -284,8 +344,14 @@ class UnitTranslatorApp(App[None]):
     .section-heading {
         height: 1;
         margin-bottom: 1;
-        color: #80cbc4;
+        color: #72d8c9;
         text-style: bold;
+    }
+
+    .section-copy {
+        height: auto;
+        margin-bottom: 1;
+        color: #94aab3;
     }
 
     .form-field {
@@ -294,8 +360,8 @@ class UnitTranslatorApp(App[None]):
     }
 
     .form-field Label {
-        width: 15;
-        color: #b6c7d4;
+        width: 11;
+        color: #c3d2d8;
     }
 
     .form-field Input, .form-field Select {
@@ -303,78 +369,135 @@ class UnitTranslatorApp(App[None]):
     }
 
     .form-unit {
-        width: 10;
+        width: 9;
         padding-left: 1;
-        color: #8497a6;
+        color: #78919d;
+    }
+
+    #compact-result {
+        display: none;
+    }
+
+    #calculator-workspace.compact #calculator-form .section-copy {
+        display: none;
+    }
+
+    #calculator-workspace.compact #compact-result {
+        display: block;
+        height: 3;
+        margin-top: 1;
+        padding: 0 1;
+        background: #164146;
+        border: round #4da99e;
+        color: #edfdf8;
+        text-style: bold;
+        content-align: left middle;
+    }
+
+    #pricing-settings, #comparison-section {
+        margin-top: 1;
+        padding: 0 1;
+        background: #101c25;
+        border: round #294555;
+    }
+
+    #pricing-grid {
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+        grid-gutter: 1;
+        padding: 0 1 1 1;
+    }
+
+    #calculator-workspace.compact #pricing-grid {
+        grid-size: 1;
+        grid-columns: 1fr;
     }
 
     #result-grid {
         grid-size: 2;
         grid-columns: 1fr 1fr;
         grid-gutter: 1;
-        height: 7;
+        height: 9;
     }
 
     .result-cell {
-        height: 3;
+        height: 4;
         padding: 0 1;
-        background: #1f3341;
-        border: tall #315064;
+        background: #19303d;
+        border: round #315566;
+    }
+
+    .result-cell.result-primary {
+        background: #164146;
+        border: round #4da99e;
     }
 
     .result-name {
-        color: #9cb0bd;
+        color: #a8bec7;
     }
 
     .result-value {
-        color: #e7f6ed;
+        color: #edfdf8;
         text-style: bold;
     }
 
     #calculation-error, #channel-editor-error {
         min-height: 1;
-        color: #ff8a80;
+        color: #ff9a91;
         margin-top: 1;
-    }
-
-    .table-heading {
-        height: 1;
-        margin-top: 1;
-        margin-bottom: 1;
-        color: #b6c7d4;
     }
 
     DataTable {
-        height: 12;
-        border: round #365064;
-        background: #14232d;
+        height: 10;
+        border: round #294555;
+        background: #101d27;
+    }
+
+    #comparison-table {
+        height: 10;
     }
 
     #channels-table {
         height: 1fr;
-        min-height: 12;
+        min-height: 8;
     }
 
     #channel-toolbar {
-        height: 3;
+        height: 4;
         margin-bottom: 1;
     }
 
-    #channel-toolbar Static {
+    #channel-copy {
         width: 1fr;
-        content-align: left middle;
-        color: #80cbc4;
+        height: 3;
+    }
+
+    #channel-title {
+        color: #72d8c9;
         text-style: bold;
+    }
+
+    #channel-subtitle {
+        color: #94aab3;
+    }
+
+    #channel-toolbar Button, #channel-actions Button {
+        min-width: 10;
+        margin-right: 1;
+    }
+
+    #channel-detail {
+        height: 4;
+        margin-top: 1;
+        padding: 0 1;
+        background: #12212c;
+        border: round #294555;
+        color: #b9cbd1;
     }
 
     #channel-actions {
         height: 3;
         margin-top: 1;
-    }
-
-    #channel-actions Button, #channel-toolbar Button {
-        min-width: 10;
-        margin-right: 1;
     }
 
     .confirm-dialog {
@@ -383,36 +506,43 @@ class UnitTranslatorApp(App[None]):
         height: auto;
         max-height: 92%;
         padding: 1 2;
-        background: #17212b;
-        border: round #80cbc4;
+        background: #12212c;
+        border: round #4da99e;
         overflow-y: auto;
     }
 
     #channel-editor-dialog {
         width: 72;
         max-width: 92%;
-        height: 34;
+        height: 32;
         max-height: 92%;
         padding: 1 2;
         layout: vertical;
-        background: #17212b;
-        border: round #80cbc4;
+        background: #12212c;
+        border: round #4da99e;
         overflow: hidden;
     }
 
     ConfirmScreen, ChannelEditorScreen {
         align: center middle;
-        background: #000000 58%;
+        background: #000000 62%;
     }
 
     .dialog-title {
         margin-bottom: 1;
-        color: #f4f8fb;
+        color: #effbfc;
         text-style: bold;
     }
 
     .dialog-message, .channel-unit {
-        color: #b6c7d4;
+        color: #a9bdc5;
+    }
+
+    .editor-section-heading {
+        height: 1;
+        margin-top: 1;
+        color: #72d8c9;
+        text-style: bold;
     }
 
     #channel-editor-fields {
@@ -421,12 +551,18 @@ class UnitTranslatorApp(App[None]):
     }
 
     #channel-editor-fields Label {
-        color: #b6c7d4;
+        color: #c3d2d8;
         margin-top: 1;
     }
 
     #channel-editor-fields Input {
         width: 1fr;
+    }
+
+    #channel-source-settings {
+        margin-top: 1;
+        padding: 0 1;
+        border: round #294555;
     }
 
     .dialog-actions {
@@ -461,20 +597,19 @@ class UnitTranslatorApp(App[None]):
         self.conversion_service = ConversionService()
 
     def compose(self) -> ComposeResult:
-        yield Header()
         yield from compose_toolbar(self.document.path)
         with TabbedContent(initial="calculator", id="main-tabs"):
-            with TabPane("换算", id="calculator"):
+            with TabPane("快速换算", id="calculator"):
                 yield from compose_calculator(self.settings)
-            with TabPane("渠道", id="channels"):
+            with TabPane("渠道管理", id="channels"):
                 yield from compose_channels()
-        yield Footer()
+        yield from compose_footer()
 
     def on_mount(self) -> None:
         comparison = self.query_one("#comparison-table", DataTable)
         comparison.add_columns("渠道", "USD", "CNY", "相对成本")
         channels = self.query_one("#channels-table", DataTable)
-        channels.add_columns("名称", "提供商", "模型", "输入", "输出", "缓存", "生效", "版本")
+        channels.add_columns("渠道", "模型", "输入", "输出")
         self._apply_compact_layout()
         self._refresh_channel_tables()
         self._refresh_calculation()
@@ -486,7 +621,7 @@ class UnitTranslatorApp(App[None]):
     def _apply_compact_layout(self, width: int | None = None) -> None:
         if not self.is_mounted:
             return
-        workspace = self.query_one("#calculator-workspace", Horizontal)
+        workspace = self.query_one("#calculator-workspace")
         workspace.set_class((width if width is not None else self.size.width) < 96, "compact")
 
     def _input_value(self, input_id: str) -> str:
@@ -572,6 +707,7 @@ class UnitTranslatorApp(App[None]):
             "result-official-cost",
         ):
             self.query_one(f"#{result_id}", Static).update("--")
+        self.query_one("#compact-result", Static).update("--")
         self.query_one("#comparison-table", DataTable).clear()
 
     def _render_calculation(self, display: CalculationDisplay) -> None:
@@ -580,6 +716,9 @@ class UnitTranslatorApp(App[None]):
         self.query_one("#result-fen", Static).update(display.fen_per_dollar)
         self.query_one("#result-token-cost", Static).update(display.token_cost_yuan)
         self.query_one("#result-official-cost", Static).update(display.official_cost_usd)
+        self.query_one("#compact-result", Static).update(
+            f"账号成本 {display.fen_per_dollar}  ·  中转倍率 {display.multiplier}"
+        )
         table = self.query_one("#comparison-table", DataTable)
         table.clear()
         for row in display.comparison:
@@ -603,13 +742,9 @@ class UnitTranslatorApp(App[None]):
         for index, profile in enumerate(profiles):
             table.add_row(
                 profile.name,
-                profile.provider,
-                profile.model,
+                f"{profile.provider} · {profile.model or '未标注'}",
                 format_decimal(profile.input_price),
                 format_decimal(profile.output_price),
-                format_decimal(profile.cached_price),
-                profile.effective_at or "--",
-                profile.version or "--",
                 key=f"channel-{index}",
             )
         if profiles:
@@ -619,6 +754,21 @@ class UnitTranslatorApp(App[None]):
         else:
             self._selected_channel_index = None
         self._set_channel_action_state()
+        self._render_channel_detail()
+
+    def _render_channel_detail(self) -> None:
+        detail = self.query_one("#channel-detail", Static)
+        profile = self._selected_profile()
+        if profile is None:
+            detail.update("暂无比较渠道。新建一个渠道即可开始对比。")
+            return
+        detail.update(
+            f"{profile.provider} · {profile.model or '未标注模型'}  |  "
+            f"缓存 {format_decimal(profile.cached_price)} USD / 1M\n"
+            f"生效 {profile.effective_at or '--'} · "
+            f"版本 {profile.version or '未标注'} · "
+            f"来源 {profile.source or '未记录'}"
+        )
 
     def _set_channel_action_state(self) -> None:
         has_selection = self._selected_channel_index is not None
@@ -722,7 +872,9 @@ class UnitTranslatorApp(App[None]):
             self._refresh_dirty_state()
             return
         self._saved_settings = self.settings
-        self.query_one("#config-path", Static).update(f"配置: {self.document.path}")
+        self.query_one("#config-path", Static).update(
+            f"配置 · {self.document.path.name}"
+        )
         self._refresh_dirty_state()
         self.notify("配置已保存", severity="information")
 
@@ -765,6 +917,7 @@ class UnitTranslatorApp(App[None]):
         if key.startswith("channel-"):
             self._selected_channel_index = int(key.removeprefix("channel-"))
             self._set_channel_action_state()
+            self._render_channel_detail()
 
     @on(Button.Pressed)
     def on_button_pressed(self, event: Button.Pressed) -> None:

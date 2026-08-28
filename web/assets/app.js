@@ -3,6 +3,11 @@ const modeLabels = {
   fen: ["账号成本（分/刀）", "例如 5 表示每刀 5 分", "分/刀模式"],
   token_cost: ["1 亿 Token 实付成本（元）", "例如 5 表示实付 5 元", "Token 成本模式"],
 };
+const modeDefaults = {
+  multiplier: "0.05",
+  fen: "5",
+  token_cost: "5",
+};
 
 const $ = (id) => document.getElementById(id);
 let selectedMode = "multiplier";
@@ -13,6 +18,7 @@ function setMode(mode) {
     button.classList.toggle("active", button.dataset.mode === mode);
   });
   const [label, help, resultMode] = modeLabels[mode];
+  $("value").value = modeDefaults[mode];
   $("value-label").textContent = label;
   $("value-help").textContent = help;
   $("result-mode").textContent = resultMode;
@@ -49,6 +55,12 @@ function clearErrors() {
   $("form-error").textContent = "";
 }
 
+function displayNumber(value, maxPlaces = 8) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return number.toFixed(maxPlaces).replace(/0+$/, "").replace(/\.$/, "") || "0";
+}
+
 function showError(error) {
   const fieldMap = {
     value: "value",
@@ -75,18 +87,18 @@ function showError(error) {
 }
 
 function render(result) {
-  $("multiplier-result").textContent = `${result.multiplier}x`;
-  $("fen-result").textContent = `${result.fen_per_dollar} 分/刀`;
-  $("token-cost-result").textContent = `${result.token_cost_yuan} 元`;
-  $("official-cost-result").textContent = `${result.official_cost_usd} USD`;
+  $("multiplier-result").textContent = `${displayNumber(result.multiplier)}x`;
+  $("fen-result").textContent = `${displayNumber(result.fen_per_dollar)} 分/刀`;
+  $("token-cost-result").textContent = `${displayNumber(result.token_cost_yuan)} 元`;
+  $("official-cost-result").textContent = `${displayNumber(result.official_cost_usd)} USD`;
   const rows = result.comparison || [];
   $("comparison-count").textContent = `${rows.length} 个渠道`;
   $("comparison-body").innerHTML = rows.map((row, index) => `
     <tr class="${index === 0 ? "row-primary" : ""}">
       <td>${escapeHtml(row.name)}</td>
-      <td>${row.usd == null ? "基准" : escapeHtml(row.usd)}</td>
-      <td>${escapeHtml(row.yuan)}</td>
-      <td>${row.relative_to_chatgpt == null ? "基准" : `${escapeHtml(row.relative_to_chatgpt)}x`}</td>
+      <td>${row.usd == null ? "基准" : escapeHtml(displayNumber(row.usd))}</td>
+      <td>${escapeHtml(displayNumber(row.yuan))}</td>
+      <td>${row.relative_to_chatgpt == null ? "基准" : `${escapeHtml(displayNumber(row.relative_to_chatgpt))}x`}</td>
     </tr>`).join("");
 }
 

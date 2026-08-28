@@ -31,6 +31,16 @@ from unit_translator.application import ConversionService
 
 MAX_BODY_BYTES = 256 * 1024
 API_SCHEMA_VERSION = "1"
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+        "form-action 'self'"
+    ),
+    "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+}
 
 def _static_root() -> Path:
     local_root = Path(__file__).with_name("web")
@@ -68,11 +78,17 @@ class ConversionHandler(BaseHTTPRequestHandler):
             return {"schema_version": API_SCHEMA_VERSION, **payload}
         return payload
 
+    def _send_common_headers(self, *, cache_control: str) -> None:
+        for name, value in SECURITY_HEADERS.items():
+            self.send_header(name, value)
+        self.send_header("Cache-Control", cache_control)
+
     def _send_json(self, status: int, payload: object) -> None:
         body = _json_bytes(self._with_schema(payload))
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self._send_common_headers(cache_control="no-store")
         cors_origin = self._cors_origin()
         if cors_origin:
             self.send_header("Access-Control-Allow-Origin", cors_origin)
@@ -84,6 +100,7 @@ class ConversionHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        self._send_common_headers(cache_control="no-cache")
         cors_origin = self._cors_origin()
         if cors_origin:
             self.send_header("Access-Control-Allow-Origin", cors_origin)
@@ -129,6 +146,7 @@ class ConversionHandler(BaseHTTPRequestHandler):
             self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self._send_common_headers(cache_control="no-store")
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
