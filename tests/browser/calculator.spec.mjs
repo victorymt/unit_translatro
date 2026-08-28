@@ -42,3 +42,15 @@ test("keeps the page within the viewport", async ({ page }) => {
   );
   expect(hasHorizontalOverflow).toBe(false);
 });
+
+test("formats decimal strings without binary floating point drift", async ({ page }) => {
+  await page.goto("/");
+  const values = await page.evaluate(() => ({
+    rounded: displayNumber("4.506789018123456789"),
+    large: displayNumber("123456789012345678901234"),
+    scientific: displayNumber("1e100"),
+  }));
+  expect(values.rounded).toBe("4.50678902");
+  expect(values.large).toBe("1.23456789e+23");
+  expect(values.scientific).toBe("1e+100");
+});

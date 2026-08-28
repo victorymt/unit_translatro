@@ -55,10 +55,100 @@ function clearErrors() {
   $("form-error").textContent = "";
 }
 
+function stripLeadingZeros(value) {
+  return value.replace(/^0+/, "") || "0";
+}
+
+function incrementDigits(value) {
+  const digits = value.split("");
+  let carry = 1;
+  for (let index = digits.length - 1; index >= 0 && carry; index -= 1) {
+    if (digits[index] === "9") {
+      digits[index] = "0";
+    } else {
+      digits[index] = String.fromCharCode(digits[index].charCodeAt(0) + 1);
+      carry = 0;
+    }
+  }
+  return carry ? `1${digits.join("")}` : digits.join("");
+}
+
+function roundDecimalParts(integerPart, fractionPart, maxPlaces) {
+  if (fractionPart.length <= maxPlaces) {
+    return {
+      integerPart,
+      fractionPart: fractionPart.replace(/0+$/, ""),
+    };
+  }
+  let keptFraction = fractionPart.slice(0, maxPlaces);
+  let roundedInteger = integerPart;
+  if (fractionPart[maxPlaces] >= "5") {
+    const combined = incrementDigits(`${integerPart}${keptFraction.padEnd(maxPlaces, "0")}`);
+    const split = Math.max(1, combined.length - maxPlaces);
+    roundedInteger = combined.slice(0, split);
+    keptFraction = combined.slice(split);
+  }
+  return {
+    integerPart: stripLeadingZeros(roundedInteger),
+    fractionPart: keptFraction.replace(/0+$/, ""),
+  };
+}
+
+function scientificNumber(sign, integerPart, fractionPart, maxPlaces) {
+  let exponent = integerPart.length - 1;
+  const rounded = roundDecimalParts(
+    integerPart[0],
+    `${integerPart.slice(1)}${fractionPart}`,
+    maxPlaces,
+  );
+  let mantissaInteger = rounded.integerPart;
+  let mantissaFraction = rounded.fractionPart;
+  if (mantissaInteger.length > 1) {
+    exponent += 1;
+    mantissaInteger = "1";
+    mantissaFraction = "";
+  }
+  const mantissa = mantissaFraction
+    ? `${mantissaInteger}.${mantissaFraction}`
+    : mantissaInteger;
+  return `${sign}${mantissa}e${exponent >= 0 ? "+" : ""}${exponent}`;
+}
+
 function displayNumber(value, maxPlaces = 8) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return String(value);
-  return number.toFixed(maxPlaces).replace(/0+$/, "").replace(/\.$/, "") || "0";
+  const original = String(value);
+  const text = original.trim();
+  const match = text.match(/^([+-]?)(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/);
+  if (!match) return original;
+  const places = Math.max(0, Math.floor(maxPlaces));
+  const sign = match[1] === "-" ? "-" : "";
+  const integerInput = match[2];
+  const fractionInput = match[3] || "";
+  const exponent = match[4] ? parseInt(match[4], 10) : 0;
+  const rawDigits = `${integerInput}${fractionInput}`;
+  const firstNonZero = rawDigits.search(/[1-9]/);
+  if (firstNonZero < 0) return "0";
+  const digits = rawDigits.slice(firstNonZero);
+  const decimalPosition = integerInput.length + exponent - firstNonZero;
+  let integerPart;
+  let fractionPart;
+  if (decimalPosition <= 0) {
+    integerPart = "0";
+    fractionPart = `${"0".repeat(-decimalPosition)}${digits}`;
+  } else if (decimalPosition >= digits.length) {
+    integerPart = `${digits}${"0".repeat(decimalPosition - digits.length)}`;
+    fractionPart = "";
+  } else {
+    integerPart = digits.slice(0, decimalPosition);
+    fractionPart = digits.slice(decimalPosition);
+  }
+  const rounded = roundDecimalParts(integerPart, fractionPart, places);
+  if (rounded.integerPart.length > 21) {
+    return scientificNumber(sign, rounded.integerPart, rounded.fractionPart, places);
+  }
+  const result = rounded.fractionPart
+    ? `${rounded.integerPart}.${rounded.fractionPart}`
+    : rounded.integerPart;
+  return result === "0" ? "0" : `${sign}${result}`;
 }
 
 function showError(error) {
