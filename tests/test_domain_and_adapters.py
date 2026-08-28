@@ -67,6 +67,12 @@ class DomainAndAdapterTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "mode_value_mismatch")
         self.assertEqual(context.exception.field, "multiplier")
 
+    def test_request_schema_rejects_invalid_mode_before_alias_conflicts(self) -> None:
+        with self.assertRaises(ConversionValidationError) as context:
+            request_from_mapping({"mode": "unknown", "value": "1", "fen": "2"})
+        self.assertEqual(context.exception.code, "invalid_mode")
+        self.assertEqual(context.exception.field, "mode")
+
     def test_cli_json_output_is_structured(self) -> None:
         output = StringIO()
         with redirect_stdout(output):

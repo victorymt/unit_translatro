@@ -85,6 +85,11 @@ def request_from_mapping(
     default_profiles: Sequence[TokenPriceProfile] = DEEPSEEK_PRICE_PROFILES,
 ) -> ConversionRequest:
     """Parse the versioned public request schema into a domain request."""
+    mode = str(data.get("mode", "multiplier"))
+    if mode not in {"multiplier", "fen", "token_cost"}:
+        raise ConversionValidationError(
+            "mode", "invalid_mode", "mode 必须是 multiplier、fen 或 token_cost"
+        )
     value_fields = tuple(
         name for name in ("value", "multiplier", "fen", "token_cost")
         if name in data and data[name] is not None
@@ -92,11 +97,6 @@ def request_from_mapping(
     if len(value_fields) > 1:
         raise ConversionValidationError(
             "value", "ambiguous_value", "value、multiplier、fen、token_cost 只能提供一个"
-        )
-    mode = str(data.get("mode", "multiplier"))
-    if mode not in {"multiplier", "fen", "token_cost"}:
-        raise ConversionValidationError(
-            "mode", "invalid_mode", "mode 必须是 multiplier、fen 或 token_cost"
         )
     selected_value = value_fields[0] if value_fields else None
     if selected_value not in {None, "value", mode}:
