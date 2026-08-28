@@ -209,14 +209,14 @@ class UnitTranslatorApp(App[None]):
 
     CSS = """
     Screen {
-        background: #0b1118;
-        color: #e7f0f3;
+        background: #111214;
+        color: #ecebea;
     }
 
     #workbench-toolbar {
         height: 3;
         padding: 0 2;
-        background: #11212c;
+        background: #1a1b1d;
     }
 
     #workspace-brand {
@@ -225,54 +225,58 @@ class UnitTranslatorApp(App[None]):
     }
 
     #workspace-title {
-        color: #effbfc;
+        color: #f5f2ea;
         text-style: bold;
     }
 
     #workspace-subtitle {
-        color: #89a5b0;
+        color: #9d9a92;
     }
 
     #config-path {
         width: 1fr;
         content-align: right middle;
-        color: #9db2bd;
+        color: #b7b4ac;
         overflow: hidden;
     }
 
     #dirty-indicator {
         width: 8;
         content-align: center middle;
-        color: #69d3c5;
+        color: #8db7aa;
     }
 
     #dirty-indicator.dirty {
-        color: #ffd166;
+        color: #d8b26e;
     }
 
     Button {
         min-width: 8;
-        background: #243c4b;
-        color: #e7f0f3;
+        background: #2a2b2e;
+        color: #ebe9e5;
         border: none;
     }
 
+    Button:hover {
+        background: #34363a;
+    }
+
     Button:focus {
-        background: #317b7e;
-        color: #f7ffff;
+        background: #c5a46b;
+        color: #171716;
         text-style: bold;
     }
 
     Button.-primary {
-        background: #216d78;
+        background: #3d5c58;
     }
 
     Button.-success {
-        background: #236954;
+        background: #436553;
     }
 
     Button.-error {
-        background: #783746;
+        background: #6c4147;
     }
 
     #workbench-toolbar Button {
@@ -282,8 +286,8 @@ class UnitTranslatorApp(App[None]):
     #shortcut-bar {
         height: 1;
         padding: 0 2;
-        background: #0e1a23;
-        color: #88a2ac;
+        background: #17181a;
+        color: #817f7b;
     }
 
     #shortcut-bar Static {
@@ -297,6 +301,20 @@ class UnitTranslatorApp(App[None]):
 
     TabbedContent {
         height: 1fr;
+    }
+
+    Tabs {
+        background: #151617;
+        border-bottom: solid #2d2f31;
+    }
+
+    Tab {
+        color: #85847f;
+    }
+
+    Tab.-active {
+        color: #f5f2ea;
+        text-style: bold;
     }
 
     TabPane {
@@ -323,8 +341,8 @@ class UnitTranslatorApp(App[None]):
         min-width: 30;
         height: auto;
         padding: 1;
-        background: #12212c;
-        border: round #294555;
+        background: #17191b;
+        border: none;
     }
 
     #calculator-workspace.compact #calculator-form {
@@ -337,8 +355,8 @@ class UnitTranslatorApp(App[None]):
         height: auto;
         margin-left: 1;
         padding: 1;
-        background: #12212c;
-        border: round #294555;
+        background: #17191b;
+        border: none;
     }
 
     #calculator-workspace.compact #calculator-output {
@@ -348,14 +366,14 @@ class UnitTranslatorApp(App[None]):
     .section-heading {
         height: 1;
         margin-bottom: 1;
-        color: #72d8c9;
+        color: #9ec4b7;
         text-style: bold;
     }
 
     .section-copy {
         height: auto;
         margin-bottom: 1;
-        color: #94aab3;
+        color: #999793;
     }
 
     .form-field {
@@ -365,7 +383,7 @@ class UnitTranslatorApp(App[None]):
 
     .form-field Label {
         width: 11;
-        color: #c3d2d8;
+        color: #d0ccc3;
     }
 
     .form-field Input, .form-field Select {
@@ -375,7 +393,17 @@ class UnitTranslatorApp(App[None]):
     .form-unit {
         width: 9;
         padding-left: 1;
-        color: #78919d;
+        color: #888681;
+    }
+
+    Input, Select {
+        background: #242629;
+        border: solid #3f4245;
+        color: #f2efe9;
+    }
+
+    Input:focus, Select:focus {
+        border: solid #c5a46b;
     }
 
     #compact-result {
@@ -396,9 +424,9 @@ class UnitTranslatorApp(App[None]):
         min-height: 5;
         margin-top: 1;
         padding: 0 1;
-        background: #164146;
-        border: round #4da99e;
-        color: #edfdf8;
+        background: #273c38;
+        border: solid #739b8b;
+        color: #eef5ef;
         text-style: bold;
         content-align: left middle;
     }
@@ -408,21 +436,21 @@ class UnitTranslatorApp(App[None]):
         height: auto;
         min-height: 1;
         margin-top: 1;
-        color: #ff9a91;
+        color: #e2a19b;
     }
 
     #pricing-settings {
         margin-top: 1;
         padding: 0 1;
-        background: #101c25;
-        border: round #294555;
+        background: #17191b;
+        border: none;
     }
 
     #comparison-workspace {
         height: 1fr;
         padding: 1;
-        background: #101c25;
-        border: round #294555;
+        background: #17191b;
+        border: none;
     }
 
     #pricing-grid {
@@ -447,34 +475,34 @@ class UnitTranslatorApp(App[None]):
     .result-cell {
         height: 4;
         padding: 0 1;
-        background: #19303d;
-        border: round #315566;
+        background: #232527;
+        border: solid #3d4043;
     }
 
     .result-cell.result-primary {
-        background: #164146;
-        border: round #4da99e;
+        background: #2a403c;
+        border: solid #86b4a5;
     }
 
     .result-name {
-        color: #a8bec7;
+        color: #aaa8a0;
     }
 
     .result-value {
-        color: #edfdf8;
+        color: #f4f1ea;
         text-style: bold;
     }
 
     #calculation-error, #channel-editor-error {
         min-height: 1;
-        color: #ff9a91;
+        color: #e2a19b;
         margin-top: 1;
     }
 
     DataTable {
         height: 10;
-        border: round #294555;
-        background: #101d27;
+        border: solid #35383b;
+        background: #191b1d;
     }
 
     #comparison-table {
@@ -511,12 +539,12 @@ class UnitTranslatorApp(App[None]):
     }
 
     #channel-title {
-        color: #72d8c9;
+        color: #9ec4b7;
         text-style: bold;
     }
 
     #channel-subtitle {
-        color: #94aab3;
+        color: #999793;
     }
 
     #channel-toolbar Button, #channel-actions Button {
@@ -528,9 +556,9 @@ class UnitTranslatorApp(App[None]):
         height: 4;
         margin-top: 1;
         padding: 0 1;
-        background: #12212c;
-        border: round #294555;
-        color: #b9cbd1;
+        background: #1b1d1f;
+        border: none;
+        color: #c2c0b9;
     }
 
     #channel-actions {
@@ -544,8 +572,8 @@ class UnitTranslatorApp(App[None]):
         height: auto;
         max-height: 92%;
         padding: 1 2;
-        background: #12212c;
-        border: round #4da99e;
+        background: #1d1f21;
+        border: solid #c3a46d;
         overflow-y: auto;
     }
 
@@ -556,30 +584,30 @@ class UnitTranslatorApp(App[None]):
         max-height: 92%;
         padding: 1 2;
         layout: vertical;
-        background: #12212c;
-        border: round #4da99e;
+        background: #1d1f21;
+        border: solid #c3a46d;
         overflow: hidden;
     }
 
     ConfirmScreen, ChannelEditorScreen {
         align: center middle;
-        background: #000000 62%;
+        background: #000000 70%;
     }
 
     .dialog-title {
         margin-bottom: 1;
-        color: #effbfc;
+        color: #f5f2ea;
         text-style: bold;
     }
 
     .dialog-message, .channel-unit {
-        color: #a9bdc5;
+        color: #aaa8a0;
     }
 
     .editor-section-heading {
         height: 1;
         margin-top: 1;
-        color: #72d8c9;
+        color: #9ec4b7;
         text-style: bold;
     }
 
@@ -589,7 +617,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     #channel-editor-fields Label {
-        color: #c3d2d8;
+        color: #d0ccc3;
         margin-top: 1;
     }
 
@@ -600,7 +628,7 @@ class UnitTranslatorApp(App[None]):
     #channel-source-settings {
         margin-top: 1;
         padding: 0 1;
-        border: round #294555;
+        border: solid #3b3d3f;
     }
 
     .dialog-actions {
