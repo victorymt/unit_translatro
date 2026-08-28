@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 unit-translator = "unit_converter:main"
 unit-translator-web = "web_api:run_server"
+unit-translator-catalog = "catalog_tool:main"
 
 [tool.setuptools]
 py-modules = [
@@ -26,6 +27,7 @@ py-modules = [
   "converter_core",
   "converter_io",
   "batch_processing",
+  "catalog_tool",
   "app_config",
   "web_api",
   "pricing_catalog",

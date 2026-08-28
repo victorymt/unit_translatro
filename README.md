@@ -222,6 +222,15 @@ Web API 默认只监听本机地址，公网部署前应放在反向代理或 Fa
 
 价格目录位于 `config/default_profiles.json`，每条记录包含 provider、model、三类 Token 单价、来源、生效日期和版本。Web API 会从目录读取 `/api/v1/profiles`，也可通过 `create_server(pricing_catalog_path=...)` 注入另一份目录；请求中显式提供 `comparison_profiles` 时仍可做临时比较。`as_of=YYYY-MM-DD` 查询可筛选生效日期不晚于指定日期的价格。
 
+修改目录后可用本地命令先校验再启动服务：
+
+```bash
+uv run unit-translator-catalog config/default_profiles.json --summary
+uv run unit-translator-catalog config/default_profiles.json --json --as-of 2026-08-28
+```
+
+命令会检查 JSON 结构、非负价格、非空版本和 `YYYY-MM-DD` 生效日期；校验失败时返回退出码 `2` 并输出具体字段错误。
+
 汇率保持显式传入以保证换算可复现；`StaticExchangeRateProvider` 和 `ExchangeRateProvider` 已提供可替换边界，后续可以接入带缓存和来源信息的联网 provider，而无需修改领域计算函数。
 
 ## 测试
