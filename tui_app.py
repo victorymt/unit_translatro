@@ -16,7 +16,7 @@ from typing import Callable
 from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Grid, Horizontal, Vertical
+from textual.containers import Container, Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -95,7 +95,7 @@ class ChannelEditorScreen(ModalScreen[TokenPriceProfile | None]):
         with Container(id="channel-editor-dialog"):
             yield Label(title, classes="dialog-title")
             yield Static("USD / 1M tokens", classes="channel-unit")
-            with Vertical(id="channel-editor-fields"):
+            with VerticalScroll(id="channel-editor-fields"):
                 yield Label("名称")
                 yield Input(profile.name if profile else "", id="channel-name")
                 yield Label("提供商")
@@ -375,7 +375,7 @@ class UnitTranslatorApp(App[None]):
         margin-right: 1;
     }
 
-    .confirm-dialog, #channel-editor-dialog {
+    .confirm-dialog {
         width: 72;
         max-width: 92%;
         height: auto;
@@ -384,6 +384,18 @@ class UnitTranslatorApp(App[None]):
         background: #17212b;
         border: round #80cbc4;
         overflow-y: auto;
+    }
+
+    #channel-editor-dialog {
+        width: 72;
+        max-width: 92%;
+        height: 34;
+        max-height: 92%;
+        padding: 1 2;
+        layout: vertical;
+        background: #17212b;
+        border: round #80cbc4;
+        overflow: hidden;
     }
 
     ConfirmScreen, ChannelEditorScreen {
@@ -402,6 +414,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     #channel-editor-fields {
+        height: 1fr;
         margin-top: 1;
     }
 

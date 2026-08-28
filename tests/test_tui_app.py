@@ -2,7 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from textual.widgets import Input, Static, TabbedContent
+from textual.containers import VerticalScroll
+from textual.widgets import Button, Input, Static, TabbedContent
 
 from settings_store import load_settings_document
 from tui_app import ChannelEditorScreen, ConfirmScreen, UnitTranslatorApp
@@ -87,6 +88,26 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsInstance(app.screen, ChannelEditorScreen)
                 error = app.screen.query_one("#channel-editor-error", Static)
                 self.assertIn("名称", str(error.content))
+
+    async def test_channel_editor_scrolls_fields_and_keeps_actions_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app, _ = self._app_for(directory)
+            async with app.run_test(size=(80, 24)) as pilot:
+                app.query_one("#main-tabs", TabbedContent).active = "channels"
+                await pilot.pause()
+                await pilot.click("#new-channel")
+                await pilot.pause()
+
+                editor = app.screen
+                fields = editor.query_one("#channel-editor-fields", VerticalScroll)
+                save_button = editor.query_one("#channel-save", Button)
+                self.assertGreater(fields.max_scroll_y, 0)
+                self.assertLessEqual(save_button.region.bottom, app.size.height)
+
+                for _ in range(8):
+                    await pilot.press("tab")
+                await pilot.pause()
+                self.assertGreater(fields.scroll_y, 0)
 
     async def test_save_and_discard_are_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
