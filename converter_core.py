@@ -7,7 +7,7 @@ is the shared calculation boundary for the CLI, TUI, batch tooling, and web API.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Mapping, Sequence
 
 
@@ -409,8 +409,23 @@ def calculate_conversion(request: ConversionRequest) -> ConversionResult:
 
 def format_decimal(value: Decimal, max_places: int = 8) -> str:
     """Format Decimal for human-facing output only."""
+    if max_places < 0:
+        raise ValueError("小数位数不能为负数")
+    if value == 0:
+        return "0"
+    # Avoid allocating an enormous plain string for values entered by mistake.
+    if value.adjusted() >= 20:
+        mantissa, exponent = format(value, f".{max_places}E").split("E")
+        mantissa = mantissa.rstrip("0").rstrip(".")
+        return f"{mantissa}e{int(exponent):+d}"
     quantum = Decimal(1).scaleb(-max_places)
-    rounded = value.quantize(quantum)
+    required_precision = max(
+        28,
+        len(value.as_tuple().digits) + max(1, value.adjusted() + 1) + max_places,
+    )
+    with localcontext() as context:
+        context.prec = required_precision
+        rounded = value.quantize(quantum)
     return format(rounded, "f").rstrip("0").rstrip(".") or "0"
 
 

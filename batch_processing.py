@@ -18,22 +18,27 @@ if TYPE_CHECKING:
 
 def iter_records(path: str | Path) -> Iterator[dict[str, Any]]:
     source = Path(path)
-    if source.suffix.lower() == ".csv":
-        with source.open("r", encoding="utf-8-sig", newline="") as handle:
-            yield from csv.DictReader(handle)
-        return
-    with source.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            text = line.strip()
-            if not text:
-                continue
-            try:
-                record = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"第 {line_number} 行不是有效 JSON: {exc.msg}") from exc
-            if not isinstance(record, dict):
-                raise ValueError(f"第 {line_number} 行必须是 JSON 对象")
-            yield record
+    try:
+        if source.suffix.lower() == ".csv":
+            with source.open("r", encoding="utf-8-sig", newline="") as handle:
+                yield from csv.DictReader(handle)
+            return
+        with source.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    record = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"第 {line_number} 行不是有效 JSON: {exc.msg}") from exc
+                if not isinstance(record, dict):
+                    raise ValueError(f"第 {line_number} 行必须是 JSON 对象")
+                yield record
+    except FileNotFoundError as exc:
+        raise ValueError(f"批处理文件不存在: {source}") from exc
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"批处理文件无法读取: {source}: {exc}") from exc
 
 
 def _csv_record_to_request(

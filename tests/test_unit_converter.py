@@ -48,6 +48,17 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(format_decimal(Decimal("5.00000000")), "5")
         self.assertEqual(format_decimal(Decimal("0.0123456789")), "0.01234568")
 
+    def test_decimal_formatting_handles_large_values(self) -> None:
+        self.assertEqual(format_decimal(Decimal("1e100")), "1e+100")
+        self.assertEqual(format_decimal(Decimal("1.23456789e1000")), "1.23456789e+1000")
+
+    def test_cli_handles_large_values_without_a_traceback(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["--multiplier", "1e100"])
+        self.assertEqual(exit_code, 0)
+        self.assertIn("倍率: 1e+100x", output.getvalue())
+
     def test_one_hundred_million_token_cost(self) -> None:
         self.assertEqual(format_decimal(token_cost_yuan(fen_per_dollar="5")), "4.50678902")
 

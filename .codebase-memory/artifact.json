@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "6a2af17248dbc1709acbe135c1dbcd47bf189533",
-    "indexed_at": "2026-08-28T12:01:14Z",
+    "commit": "f6388e2f3179ef34e6fffc2ae4ec5d2ef31fb33d",
+    "indexed_at": "2026-08-28T12:45:09Z",
     "project": "data-project-unit_translator",
-    "nodes": 467,
-    "edges": 2364,
-    "original_size": 3604480,
-    "compressed_size": 524412,
+    "nodes": 470,
+    "edges": 2399,
+    "original_size": 3670016,
+    "compressed_size": 534637,
     "compression_level": 3
 }

@@ -78,6 +78,15 @@ class DomainAndAdapterTests(unittest.TestCase):
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["mode"], "multiplier")
 
+    def test_cli_batch_missing_file_returns_a_user_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.jsonl"
+            output = StringIO()
+            with redirect_stdout(output):
+                exit_code = main(["--input-file", str(missing), "--format", "json"])
+        self.assertEqual(exit_code, 2)
+        self.assertIn("批处理文件不存在", output.getvalue())
+
     def test_batch_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "requests.jsonl"
