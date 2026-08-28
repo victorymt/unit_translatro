@@ -6,7 +6,7 @@ import csv
 import json
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, TextIO, TYPE_CHECKING
 
 from converter_core import DEFAULT_USAGE, ConversionResult
 from converter_io import result_to_dict
@@ -65,29 +65,63 @@ def iter_results(path: str | Path, settings: "Settings | None" = None) -> Iterat
 
 
 def batch_to_json(path: str | Path, settings: "Settings | None" = None) -> str:
-    return json.dumps(
-        [result_to_dict(result) for result in iter_results(path, settings)],
-        ensure_ascii=False,
-        indent=2,
-    )
-
-
-def batch_to_csv(path: str | Path, settings: "Settings | None" = None) -> str:
-    rows = list(iter_results(path, settings))
-    if not rows:
-        return ""
     import io
 
     output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["record", "mode", "multiplier", "fen_per_dollar", "token_cost_yuan", "official_cost_usd"])
-    for index, result in enumerate(rows, start=1):
-        writer.writerow([
-            index,
-            result.mode,
-            str(result.multiplier),
-            str(result.fen_per_dollar),
-            str(result.token_cost_yuan),
-            str(result.official_cost_usd),
-        ])
+    write_batch_json(path, output, settings)
+    return output.getvalue()
+
+
+def write_batch_json(
+    path: str | Path, output: TextIO, settings: "Settings | None" = None
+) -> None:
+    """Write JSON results incrementally without retaining the full batch."""
+    output.write("[")
+    first = True
+    for result in iter_results(path, settings):
+        rendered = json.dumps(result_to_dict(result), ensure_ascii=False, indent=2)
+        output.write("\n" if first else ",\n")
+        output.write("\n".join(f"  {line}" for line in rendered.splitlines()))
+        first = False
+    if not first:
+        output.write("\n")
+    output.write("]")
+
+
+def batch_to_csv(path: str | Path, settings: "Settings | None" = None) -> str:
+    import io
+
+    output = io.StringIO()
+    write_batch_csv(path, output, settings)
     return output.getvalue().rstrip("\r\n")
+
+
+def write_batch_csv(
+    path: str | Path, output: TextIO, settings: "Settings | None" = None
+) -> None:
+    """Write CSV results incrementally without retaining the full batch."""
+    writer = csv.writer(output)
+    wrote_header = False
+    for index, result in enumerate(iter_results(path, settings), start=1):
+        if not wrote_header:
+            writer.writerow(
+                [
+                    "record",
+                    "mode",
+                    "multiplier",
+                    "fen_per_dollar",
+                    "token_cost_yuan",
+                    "official_cost_usd",
+                ]
+            )
+            wrote_header = True
+        writer.writerow(
+            [
+                index,
+                result.mode,
+                str(result.multiplier),
+                str(result.fen_per_dollar),
+                str(result.token_cost_yuan),
+                str(result.official_cost_usd),
+            ]
+        )

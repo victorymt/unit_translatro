@@ -186,6 +186,8 @@ uv run unit-translator --serve --config settings.toml --host 127.0.0.1 --port 87
 
 配置中的 `usage`、`chatgpt_profile`、`comparison_profiles` 和 `usd_cny_rate` 会作为各入口的默认值；请求或命令行显式提供的值优先。交互工作台可以从不存在的 JSON/TOML 文件开始编辑；批处理和 Web API 对不存在的 `--config` 仍会报错，避免自动生成配置掩盖脚本错误。价格目录快照和汇率都通过可替换 provider 解析，计算结果仍保持显式汇率和精确字符串输出。
 
+批处理 JSON/CSV 会直接写入标准输出并逐条处理，适合较大的请求文件；`--serve` 只能与 `--config`、`--host` 和 `--port` 一起使用，不能同时传入换算或批处理参数。
+
 ## Web API
 
 项目提供零依赖的本地 HTTP 适配器，适合先做内部工具或前端原型：

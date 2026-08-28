@@ -9,6 +9,7 @@ batch and web callers because Textual is imported only when the TUI starts.
 from __future__ import annotations
 
 import argparse
+import sys
 import unicodedata
 from pathlib import Path
 from typing import Sequence
@@ -52,7 +53,7 @@ from converter_core import (  # noqa: F401
     token_cost_yuan_for_usage,
 )
 from app_config import load_settings
-from batch_processing import batch_to_csv, batch_to_json
+from batch_processing import batch_to_csv, batch_to_json, write_batch_csv, write_batch_json
 from converter_io import render_result
 from unit_translator.application import ConversionService
 
@@ -240,9 +241,10 @@ def _run_cli(args: argparse.Namespace) -> int:
         settings = load_settings(args.config)
         if args.input_file:
             if args.output_format == "json":
-                print(batch_to_json(args.input_file, settings))
+                write_batch_json(args.input_file, sys.stdout, settings)
+                sys.stdout.write("\n")
             elif args.output_format == "csv":
-                print(batch_to_csv(args.input_file, settings))
+                write_batch_csv(args.input_file, sys.stdout, settings)
             else:
                 print("批处理默认输出 JSON；请使用 --format json 或 --format csv")
                 return 2
@@ -270,6 +272,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.serve:
+        conflicts = []
+        if args.input_file:
+            conflicts.append("--input-file")
+        if any(value is not None for value in (args.multiplier, args.fen, args.token_cost)):
+            conflicts.append("换算参数")
+        if any(
+            value is not None
+            for value in (
+                args.ratio,
+                args.token_price,
+                args.output_price,
+                args.cache_price,
+                args.usd_cny_rate,
+            )
+        ):
+            conflicts.append("价格或汇率参数")
+        if args.output_format != "text":
+            conflicts.append("--format")
+        if conflicts:
+            parser.error(f"--serve 不能与 {', '.join(conflicts)} 同时使用")
         try:
             from web_api import run_server
 

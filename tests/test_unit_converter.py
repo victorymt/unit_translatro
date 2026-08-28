@@ -124,6 +124,14 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertIn("美元兑人民币汇率必须大于 0", output.getvalue())
 
+    def test_serve_rejects_conversion_and_batch_arguments(self) -> None:
+        with self.assertRaises(SystemExit) as context:
+            main(["--serve", "--multiplier", "0.05"])
+        self.assertEqual(context.exception.code, 2)
+        with self.assertRaises(SystemExit) as context:
+            main(["--serve", "--input-file", "requests.jsonl"])
+        self.assertEqual(context.exception.code, 2)
+
     def test_interactive_mode_passes_raw_config_path_to_textual_launcher(self) -> None:
         with patch("unit_converter.launch_tui", return_value=0) as launcher:
             self.assertEqual(main(["--config", "missing.toml"]), 0)

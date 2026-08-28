@@ -10,7 +10,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from app_config import Settings, load_settings
-from batch_processing import batch_to_csv, batch_to_json
+from batch_processing import batch_to_csv, batch_to_json, write_batch_csv, write_batch_json
 from converter_core import (
     ConversionRequest,
     ConversionValidationError,
@@ -122,6 +122,21 @@ class DomainAndAdapterTests(unittest.TestCase):
             output = batch_to_csv(path)
         self.assertIn("multiplier", output)
         self.assertIn("6.65", output)
+
+    def test_batch_writers_stream_to_text_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "requests.jsonl"
+            path.write_text(
+                '{"mode":"multiplier","value":"0.05"}\n'
+                '{"mode":"fen","value":"5"}\n',
+                encoding="utf-8",
+            )
+            json_output = StringIO()
+            csv_output = StringIO()
+            write_batch_json(path, json_output)
+            write_batch_csv(path, csv_output)
+        self.assertEqual(len(json.loads(json_output.getvalue())), 2)
+        self.assertEqual(len(csv_output.getvalue().splitlines()), 3)
 
     def test_batch_uses_settings_for_records_without_explicit_usage(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
