@@ -85,6 +85,26 @@ def request_from_mapping(
     default_profiles: Sequence[TokenPriceProfile] = DEEPSEEK_PRICE_PROFILES,
 ) -> ConversionRequest:
     """Parse the versioned public request schema into a domain request."""
+    value_fields = tuple(
+        name for name in ("value", "multiplier", "fen", "token_cost")
+        if name in data and data[name] is not None
+    )
+    if len(value_fields) > 1:
+        raise ConversionValidationError(
+            "value", "ambiguous_value", "value、multiplier、fen、token_cost 只能提供一个"
+        )
+    mode = str(data.get("mode", "multiplier"))
+    if mode not in {"multiplier", "fen", "token_cost"}:
+        raise ConversionValidationError(
+            "mode", "invalid_mode", "mode 必须是 multiplier、fen 或 token_cost"
+        )
+    selected_value = value_fields[0] if value_fields else None
+    if selected_value not in {None, "value", mode}:
+        raise ConversionValidationError(
+            selected_value,
+            "mode_value_mismatch",
+            f"mode={mode} 时只能提供 value 或 {mode}",
+        )
     profiles_data = (
         data["comparison_profiles"] if "comparison_profiles" in data else data.get("profiles")
     )
@@ -107,8 +127,8 @@ def request_from_mapping(
         data["chatgpt_profile"] if "chatgpt_profile" in data else data.get("prices")
     )
     return ConversionRequest(
-        mode=str(data.get("mode", "multiplier")),
-        value=value_from_mapping(data, "value", "multiplier", "fen", "token_cost", default="0"),
+        mode=mode,
+        value=data[selected_value] if selected_value is not None else "0",
         balance_per_yuan=value_from_mapping(data, "balance_per_yuan", "ratio", default="1"),
         usage=usage_from_mapping(data.get("usage")),
         chatgpt_profile=chatgpt_profile_from_mapping(profile_data),

@@ -160,7 +160,16 @@ class ConversionHandler(BaseHTTPRequestHandler):
                 (item.split("=", 1)[1] for item in query.split("&") if item.startswith("as_of=")),
                 None,
             )
-            catalog = self.pricing_catalog.to_dict(as_of=unquote(as_of) if as_of else None)
+            try:
+                catalog = self.pricing_catalog.to_dict(
+                    as_of=unquote(as_of) if as_of is not None else None
+                )
+            except ValueError as exc:
+                self._send_json(
+                    400,
+                    {"error": {"code": "invalid_as_of", "message": str(exc)}},
+                )
+                return
             self._send_json(200, {"catalog_version": catalog["version"], "profiles": catalog["profiles"]})
             return
         if self._serve_static(path):

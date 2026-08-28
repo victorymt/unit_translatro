@@ -13,6 +13,7 @@ from app_config import Settings, load_settings
 from batch_processing import batch_to_csv, batch_to_json
 from converter_core import (
     ConversionRequest,
+    ConversionValidationError,
     TokenPriceProfile,
     TokenUsage,
     calculate_conversion,
@@ -54,6 +55,17 @@ class DomainAndAdapterTests(unittest.TestCase):
         self.assertEqual(request.mode, "fen")
         self.assertEqual(request.usage.total_tokens, 60)
         self.assertEqual(request.chatgpt_profile.output_price, 2)
+
+    def test_request_schema_rejects_ambiguous_value_aliases(self) -> None:
+        with self.assertRaises(ConversionValidationError) as context:
+            request_from_mapping({"mode": "multiplier", "value": "1", "multiplier": "2"})
+        self.assertEqual(context.exception.code, "ambiguous_value")
+
+    def test_request_schema_rejects_value_alias_for_other_mode(self) -> None:
+        with self.assertRaises(ConversionValidationError) as context:
+            request_from_mapping({"mode": "fen", "multiplier": "0.1"})
+        self.assertEqual(context.exception.code, "mode_value_mismatch")
+        self.assertEqual(context.exception.field, "multiplier")
 
     def test_cli_json_output_is_structured(self) -> None:
         output = StringIO()
@@ -311,6 +323,12 @@ class DomainAndAdapterTests(unittest.TestCase):
         thread.start()
         base_url = f"http://127.0.0.1:{server.server_address[1]}"
         try:
+            with self.assertRaises(HTTPError) as context:
+                urlopen(f"{base_url}/api/v1/profiles?as_of=not-a-date")
+            self.assertEqual(context.exception.code, 400)
+            invalid_payload = json.loads(context.exception.read())
+            self.assertEqual(invalid_payload["error"]["code"], "invalid_as_of")
+            self.assertEqual(invalid_payload["error"]["message"], "as_of必须是 YYYY-MM-DD")
             with urlopen(f"{base_url}/api/v1/profiles?as_of=2026-01-01") as response:
                 profiles_payload = json.loads(response.read())
             self.assertEqual(profiles_payload["catalog_version"], "custom-v1")

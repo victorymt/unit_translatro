@@ -55,6 +55,7 @@ class Settings:
         else:
             profiles_data = None
         catalog = load_pricing_catalog()
+        catalog_version = data.get("version", catalog.version)
         if profiles_data is None:
             profiles = catalog.profiles
         else:
@@ -62,7 +63,15 @@ class Settings:
                 raise ValueError("comparison_profiles 必须是数组")
             if any(not isinstance(item, Mapping) for item in profiles_data):
                 raise ValueError("comparison_profiles 中每项必须是对象")
+            # Reuse catalog validation so file-backed settings and API catalogs
+            # enforce the same version and effective-date rules.
+            PricingCatalog.from_mapping(
+                {"version": catalog_version, "profiles": [dict(item) for item in profiles_data]}
+            )
             profiles = tuple(profile_from_mapping(item) for item in profiles_data)
+        validated_version = PricingCatalog.from_mapping(
+            {"version": catalog_version, "profiles": []}
+        ).version
         return cls(
             balance_per_yuan=str(data.get("balance_per_yuan", data.get("ratio", "1"))),
             chatgpt_profile=chatgpt_profile_from_mapping(
@@ -71,7 +80,7 @@ class Settings:
             usage=usage_from_mapping(data.get("usage")),
             usd_cny_rate=str(data.get("usd_cny_rate", DEFAULT_USD_CNY_RATE)),
             comparison_profiles=profiles,
-            version=str(data.get("version", catalog.version)),
+            version=validated_version,
         )
 
     def to_dict(self) -> dict[str, object]:

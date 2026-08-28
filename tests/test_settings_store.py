@@ -89,6 +89,40 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(catalog.version, "empty")
         self.assertEqual(catalog.profiles, ())
 
+    def test_catalog_rejects_invalid_effective_date(self) -> None:
+        with self.assertRaisesRegex(ValueError, "effective_at.*YYYY-MM-DD"):
+            PricingCatalog.from_mapping(
+                {
+                    "version": "custom",
+                    "profiles": [
+                        {
+                            "name": "Invalid",
+                            "input_price": "1",
+                            "output_price": "1",
+                            "cached_price": "1",
+                            "effective_at": "2026-2-1",
+                        }
+                    ],
+                }
+            )
+
+    def test_catalog_rejects_empty_version(self) -> None:
+        with self.assertRaisesRegex(ValueError, "version.*不能为空"):
+            PricingCatalog.from_mapping({"version": "  ", "profiles": []})
+
+    def test_settings_reject_invalid_catalog_metadata(self) -> None:
+        profile = {
+            "name": "Invalid",
+            "input_price": "1",
+            "output_price": "1",
+            "cached_price": "1",
+            "effective_at": "2026-2-1",
+        }
+        with self.assertRaisesRegex(ValueError, "effective_at.*YYYY-MM-DD"):
+            Settings.from_mapping({"comparison_profiles": [profile]})
+        with self.assertRaisesRegex(ValueError, "version.*不能为空"):
+            Settings.from_mapping({"version": "", "comparison_profiles": []})
+
 
 if __name__ == "__main__":
     unittest.main()

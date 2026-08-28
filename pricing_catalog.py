@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sysconfig
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Protocol, Sequence
@@ -28,6 +29,18 @@ def _default_catalog_path() -> Path:
 DEFAULT_CATALOG_PATH = _default_catalog_path()
 
 
+def _catalog_date(value: object, label: str) -> date:
+    """Parse the catalog's strict ISO calendar date representation."""
+    text = str(value).strip()
+    try:
+        parsed = date.fromisoformat(text)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label}必须是 YYYY-MM-DD") from exc
+    if parsed.isoformat() != text:
+        raise ValueError(f"{label}必须是 YYYY-MM-DD")
+    return parsed
+
+
 @dataclass(frozen=True)
 class PricingCatalog:
     profiles: tuple[TokenPriceProfile, ...]
@@ -35,6 +48,10 @@ class PricingCatalog:
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "PricingCatalog":
+        raw_version = data.get("version", "custom")
+        if raw_version is None or not str(raw_version).strip():
+            raise ValueError("价格目录的 version 不能为空")
+        version = str(raw_version).strip()
         raw_profiles = data.get("profiles")
         if not isinstance(raw_profiles, list):
             raise ValueError("价格目录的 profiles 必须是数组")
@@ -42,6 +59,15 @@ class PricingCatalog:
         for index, item in enumerate(raw_profiles):
             if not isinstance(item, dict):
                 raise ValueError(f"价格目录第 {index + 1} 项必须是对象")
+            raw_effective_at = item.get("effective_at")
+            effective_at = (
+                None
+                if raw_effective_at is None
+                else _catalog_date(
+                    raw_effective_at,
+                    f"价格目录第 {index + 1} 项的 effective_at",
+                ).isoformat()
+            )
             profiles.append(
                 TokenPriceProfile(
                     str(item.get("name", f"profile-{index + 1}")),
@@ -52,12 +78,12 @@ class PricingCatalog:
                     model=str(item.get("model", "")),
                     currency=str(item.get("currency", "USD")),
                     unit=str(item.get("unit", "1M tokens")),
-                    effective_at=(None if item.get("effective_at") is None else str(item["effective_at"])),
+                    effective_at=effective_at,
                     source=(None if item.get("source") is None else str(item["source"])),
                     version=(None if item.get("version") is None else str(item["version"])),
                 )
             )
-        return cls(tuple(profiles), str(data.get("version", "custom")))
+        return cls(tuple(profiles), version)
 
     @classmethod
     def from_file(cls, path: str | Path) -> "PricingCatalog":
@@ -74,12 +100,14 @@ class PricingCatalog:
         return cls.from_mapping(data)
 
     def list_profiles(self, as_of: str | None = None) -> tuple[TokenPriceProfile, ...]:
-        if not as_of:
+        if as_of is None:
             return self.profiles
+        as_of_date = _catalog_date(as_of, "as_of")
         return tuple(
             profile
             for profile in self.profiles
-            if profile.effective_at is None or profile.effective_at <= as_of
+            if profile.effective_at is None
+            or _catalog_date(profile.effective_at, "effective_at") <= as_of_date
         )
 
     def to_dict(self, *, as_of: str | None = None) -> dict[str, object]:
