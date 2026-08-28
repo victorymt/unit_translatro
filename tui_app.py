@@ -209,14 +209,15 @@ class UnitTranslatorApp(App[None]):
 
     CSS = """
     Screen {
-        background: #111214;
-        color: #ecebea;
+        background: #101112;
+        color: #e7e5df;
     }
 
     #workbench-toolbar {
         height: 3;
         padding: 0 2;
-        background: #1a1b1d;
+        background: #101112;
+        border-bottom: solid #2a2d2f;
     }
 
     #workspace-brand {
@@ -225,7 +226,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     #workspace-title {
-        color: #f5f2ea;
+        color: #f2efe8;
         text-style: bold;
     }
 
@@ -236,14 +237,14 @@ class UnitTranslatorApp(App[None]):
     #config-path {
         width: 1fr;
         content-align: right middle;
-        color: #b7b4ac;
+        color: #969a98;
         overflow: hidden;
     }
 
     #dirty-indicator {
         width: 8;
         content-align: center middle;
-        color: #8db7aa;
+        color: #7fac9f;
     }
 
     #dirty-indicator.dirty {
@@ -251,32 +252,34 @@ class UnitTranslatorApp(App[None]):
     }
 
     Button {
-        min-width: 8;
-        background: #2a2b2e;
-        color: #ebe9e5;
+        min-width: 6;
+        background: transparent;
+        color: #c7cbc7;
         border: none;
     }
 
     Button:hover {
-        background: #34363a;
+        background: #232728;
+        color: #f2efe8;
     }
 
     Button:focus {
-        background: #c5a46b;
-        color: #171716;
+        background: transparent;
+        color: #d7b978;
+        border-bottom: solid #d7b978;
         text-style: bold;
     }
 
     Button.-primary {
-        background: #3d5c58;
+        color: #9ec4b7;
     }
 
     Button.-success {
-        background: #436553;
+        color: #9ec4b7;
     }
 
     Button.-error {
-        background: #6c4147;
+        color: #d49b98;
     }
 
     #workbench-toolbar Button {
@@ -286,7 +289,8 @@ class UnitTranslatorApp(App[None]):
     #shortcut-bar {
         height: 1;
         padding: 0 2;
-        background: #17181a;
+        background: #101112;
+        border-top: solid #222628;
         color: #817f7b;
     }
 
@@ -304,8 +308,8 @@ class UnitTranslatorApp(App[None]):
     }
 
     Tabs {
-        background: #151617;
-        border-bottom: solid #2d2f31;
+        background: transparent;
+        border-bottom: solid #2a2d2f;
     }
 
     Tab {
@@ -313,7 +317,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     Tab.-active {
-        color: #f5f2ea;
+        color: #f2efe8;
         text-style: bold;
     }
 
@@ -340,22 +344,24 @@ class UnitTranslatorApp(App[None]):
         width: 38;
         min-width: 30;
         height: auto;
-        padding: 1;
-        background: #17191b;
-        border: none;
+        padding: 1 2 1 0;
+        background: transparent;
+        border-right: solid #292d2e;
     }
 
     #calculator-workspace.compact #calculator-form {
         width: 1fr;
+        padding-right: 0;
+        border-right: none;
     }
 
     #calculator-output {
         width: 1fr;
         min-width: 36;
         height: auto;
-        margin-left: 1;
-        padding: 1;
-        background: #17191b;
+        margin-left: 2;
+        padding: 1 0;
+        background: transparent;
         border: none;
     }
 
@@ -373,7 +379,7 @@ class UnitTranslatorApp(App[None]):
     .section-copy {
         height: auto;
         margin-bottom: 1;
-        color: #999793;
+        color: #858b88;
     }
 
     .form-field {
@@ -383,7 +389,7 @@ class UnitTranslatorApp(App[None]):
 
     .form-field Label {
         width: 11;
-        color: #d0ccc3;
+        color: #c3c8c4;
     }
 
     .form-field Input, .form-field Select {
@@ -393,13 +399,13 @@ class UnitTranslatorApp(App[None]):
     .form-unit {
         width: 9;
         padding-left: 1;
-        color: #888681;
+        color: #7f8783;
     }
 
     Input, Select {
-        background: #242629;
-        border: solid #3f4245;
-        color: #f2efe9;
+        background: #191c1d;
+        border: solid #343a3b;
+        color: #eeece6;
     }
 
     Input:focus, Select:focus {
@@ -424,8 +430,9 @@ class UnitTranslatorApp(App[None]):
         min-height: 5;
         margin-top: 1;
         padding: 0 1;
-        background: #273c38;
-        border: solid #739b8b;
+        background: transparent;
+        border-left: solid #739b8b;
+        border-bottom: solid #3d5a52;
         color: #eef5ef;
         text-style: bold;
         content-align: left middle;
@@ -441,15 +448,15 @@ class UnitTranslatorApp(App[None]):
 
     #pricing-settings {
         margin-top: 1;
-        padding: 0 1;
-        background: #17191b;
-        border: none;
+        padding: 0;
+        background: transparent;
+        border-top: solid #292d2e;
     }
 
     #comparison-workspace {
         height: 1fr;
-        padding: 1;
-        background: #17191b;
+        padding: 1 0;
+        background: transparent;
         border: none;
     }
 
@@ -475,17 +482,17 @@ class UnitTranslatorApp(App[None]):
     .result-cell {
         height: 4;
         padding: 0 1;
-        background: #232527;
-        border: solid #3d4043;
+        background: transparent;
+        border-bottom: solid #303536;
     }
 
     .result-cell.result-primary {
-        background: #2a403c;
-        border: solid #86b4a5;
+        border-left: solid #86b4a5;
+        border-bottom: solid #466b60;
     }
 
     .result-name {
-        color: #aaa8a0;
+        color: #8d9591;
     }
 
     .result-value {
@@ -501,8 +508,8 @@ class UnitTranslatorApp(App[None]):
 
     DataTable {
         height: 10;
-        border: solid #35383b;
-        background: #191b1d;
+        border: none;
+        background: transparent;
     }
 
     #comparison-table {
@@ -556,8 +563,9 @@ class UnitTranslatorApp(App[None]):
         height: 4;
         margin-top: 1;
         padding: 0 1;
-        background: #1b1d1f;
-        border: none;
+        background: transparent;
+        border-top: solid #303536;
+        border-bottom: solid #303536;
         color: #c2c0b9;
     }
 
@@ -572,7 +580,7 @@ class UnitTranslatorApp(App[None]):
         height: auto;
         max-height: 92%;
         padding: 1 2;
-        background: #1d1f21;
+        background: #171a1b;
         border: solid #c3a46d;
         overflow-y: auto;
     }
@@ -584,7 +592,7 @@ class UnitTranslatorApp(App[None]):
         max-height: 92%;
         padding: 1 2;
         layout: vertical;
-        background: #1d1f21;
+        background: #171a1b;
         border: solid #c3a46d;
         overflow: hidden;
     }
@@ -596,7 +604,7 @@ class UnitTranslatorApp(App[None]):
 
     .dialog-title {
         margin-bottom: 1;
-        color: #f5f2ea;
+        color: #f2efe8;
         text-style: bold;
     }
 
@@ -628,7 +636,8 @@ class UnitTranslatorApp(App[None]):
     #channel-source-settings {
         margin-top: 1;
         padding: 0 1;
-        border: solid #3b3d3f;
+        border-top: solid #343a3b;
+        border-bottom: solid #343a3b;
     }
 
     .dialog-actions {
