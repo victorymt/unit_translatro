@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Collapsible, Input, Static, TabbedContent
+from textual.widgets import Button, Collapsible, Input, Select, Static, TabbedContent, TabPane
 
 from settings_store import load_settings_document
 from tui_app import ChannelEditorScreen, ConfirmScreen, UnitTranslatorApp
@@ -29,6 +29,17 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(
                     "9.01357804",
                     str(app.query_one("#result-token-cost", Static).content),
+                )
+
+    async def test_mode_change_resets_value_to_the_new_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app, _ = self._app_for(directory)
+            async with app.run_test(size=(120, 40)) as pilot:
+                app.query_one("#calc-mode", Select).value = "token_cost"
+                await pilot.pause()
+                self.assertEqual(app.query_one("#calc-value", Input).value, "5")
+                self.assertEqual(
+                    str(app.query_one("#result-token-cost", Static).content), "5 元"
                 )
 
     async def test_advanced_price_settings_stay_out_of_the_quick_path(self) -> None:
@@ -131,6 +142,19 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 self.assertGreater(fields.scroll_y, 0)
 
+    async def test_narrow_channels_keep_actions_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app, _ = self._app_for(directory)
+            async with app.run_test(size=(80, 24)) as pilot:
+                app.query_one("#main-tabs", TabbedContent).active = "channels"
+                await pilot.pause()
+                self.assertTrue(app.query_one("#channels", TabPane).has_class("compact"))
+                for button_id in ("#edit-channel", "#delete-channel"):
+                    self.assertLessEqual(
+                        app.query_one(button_id, Button).region.bottom,
+                        app.size.height,
+                    )
+
     async def test_save_and_discard_are_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app, path = self._app_for(directory)
@@ -194,6 +218,16 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(
                     "账号成本 5 分/刀",
                     str(app.query_one("#compact-result", Static).content),
+                )
+                self.assertIn(
+                    "1 亿成本 4.50678902 元",
+                    str(app.query_one("#compact-result", Static).content),
+                )
+                app.query_one("#calc-value", Input).value = "-1"
+                await pilot.pause()
+                self.assertIn(
+                    "不能小于 0",
+                    str(app.query_one("#compact-error", Static).content),
                 )
 
 

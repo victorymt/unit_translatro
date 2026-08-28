@@ -60,6 +60,7 @@ def _compose_calculator_form(settings: Settings) -> ComposeResult:
         "换算值", "0.05", "calc-value", "", unit_id="calc-value-unit"
     )
     yield Static("--", id="compact-result")
+    yield Static("", id="compact-error")
 
 
 def _compose_pricing_settings(settings: Settings) -> ComposeResult:

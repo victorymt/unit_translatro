@@ -200,6 +200,11 @@ class UnitTranslatorApp(App[None]):
         Binding("delete", "delete_channel", "删除渠道", show=False),
         Binding("ctrl+q", "quit", "退出"),
     ]
+    _CALC_VALUE_DEFAULTS = {
+        "multiplier": "0.05",
+        "fen": "5",
+        "token_cost": "5",
+    }
 
     CSS = """
     Screen {
@@ -336,9 +341,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     #calculator-workspace.compact #calculator-output {
-        width: 1fr;
-        margin-left: 0;
-        margin-top: 1;
+        display: none;
     }
 
     .section-heading {
@@ -378,13 +381,18 @@ class UnitTranslatorApp(App[None]):
         display: none;
     }
 
+    #compact-error {
+        display: none;
+    }
+
     #calculator-workspace.compact #calculator-form .section-copy {
         display: none;
     }
 
     #calculator-workspace.compact #compact-result {
         display: block;
-        height: 3;
+        height: auto;
+        min-height: 5;
         margin-top: 1;
         padding: 0 1;
         background: #164146;
@@ -392,6 +400,14 @@ class UnitTranslatorApp(App[None]):
         color: #edfdf8;
         text-style: bold;
         content-align: left middle;
+    }
+
+    #calculator-workspace.compact #compact-error {
+        display: block;
+        height: auto;
+        min-height: 1;
+        margin-top: 1;
+        color: #ff9a91;
     }
 
     #pricing-settings, #comparison-section {
@@ -459,7 +475,20 @@ class UnitTranslatorApp(App[None]):
 
     #channels-table {
         height: 1fr;
-        min-height: 8;
+        min-height: 5;
+    }
+
+    #channels.compact #channel-toolbar {
+        height: 3;
+    }
+
+    #channels.compact #channels-table {
+        height: 6;
+        min-height: 5;
+    }
+
+    #channels.compact #channel-detail {
+        height: 3;
     }
 
     #channel-toolbar {
@@ -621,8 +650,9 @@ class UnitTranslatorApp(App[None]):
     def _apply_compact_layout(self, width: int | None = None) -> None:
         if not self.is_mounted:
             return
-        workspace = self.query_one("#calculator-workspace")
-        workspace.set_class((width if width is not None else self.size.width) < 96, "compact")
+        compact = (width if width is not None else self.size.width) < 96
+        self.query_one("#calculator-workspace").set_class(compact, "compact")
+        self.query_one("#channels", TabPane).set_class(compact, "compact")
 
     def _input_value(self, input_id: str) -> str:
         return self.query_one(f"#{input_id}", Input).value.strip()
@@ -700,6 +730,7 @@ class UnitTranslatorApp(App[None]):
 
     def _clear_calculation(self, message: str) -> None:
         self.query_one("#calculation-error", Static).update(message)
+        self.query_one("#compact-error", Static).update(message)
         for result_id in (
             "result-multiplier",
             "result-fen",
@@ -712,12 +743,14 @@ class UnitTranslatorApp(App[None]):
 
     def _render_calculation(self, display: CalculationDisplay) -> None:
         self.query_one("#calculation-error", Static).update("")
+        self.query_one("#compact-error", Static).update("")
         self.query_one("#result-multiplier", Static).update(display.multiplier)
         self.query_one("#result-fen", Static).update(display.fen_per_dollar)
         self.query_one("#result-token-cost", Static).update(display.token_cost_yuan)
         self.query_one("#result-official-cost", Static).update(display.official_cost_usd)
         self.query_one("#compact-result", Static).update(
-            f"账号成本 {display.fen_per_dollar}  ·  中转倍率 {display.multiplier}"
+            f"账号成本 {display.fen_per_dollar}  ·  中转倍率 {display.multiplier}\n"
+            f"1 亿成本 {display.token_cost_yuan}  ·  官方成本 {display.official_cost_usd}"
         )
         table = self.query_one("#comparison-table", DataTable)
         table.clear()
@@ -909,6 +942,10 @@ class UnitTranslatorApp(App[None]):
 
     @on(Select.Changed, "#calc-mode")
     def on_mode_changed(self, event: Select.Changed) -> None:
+        mode = str(event.value)
+        default = self._CALC_VALUE_DEFAULTS.get(mode)
+        if default is not None:
+            self.query_one("#calc-value", Input).value = default
         self._refresh_calculation()
 
     @on(DataTable.RowHighlighted, "#channels-table")
