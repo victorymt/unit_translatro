@@ -3,7 +3,16 @@ import unittest
 from pathlib import Path
 
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Collapsible, Input, Select, Static, TabbedContent, TabPane
+from textual.widgets import (
+    Button,
+    Collapsible,
+    DataTable,
+    Input,
+    Select,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 
 from settings_store import load_settings_document
 from tui_app import ChannelEditorScreen, ConfirmScreen, UnitTranslatorApp
@@ -41,6 +50,21 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     str(app.query_one("#result-token-cost", Static).content), "5 元"
                 )
+
+    async def test_price_comparison_tab_shows_all_channels_on_narrow_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app, _ = self._app_for(directory)
+            async with app.run_test(size=(80, 24)) as pilot:
+                app.query_one("#main-tabs", TabbedContent).active = "comparison"
+                await pilot.pause()
+                table = app.query_one("#comparison-table", DataTable)
+                self.assertEqual(table.row_count, len(app.settings.comparison_profiles) + 1)
+                self.assertLessEqual(table.region.bottom, app.size.height)
+                self.assertIn("DeepSeek", str(table.get_row_at(1)[0]))
+                original_relative_cost = str(table.get_row_at(1)[3])
+                app.query_one("#calc-value", Input).value = "0.1"
+                await pilot.pause()
+                self.assertNotEqual(str(table.get_row_at(1)[3]), original_relative_cost)
 
     async def test_advanced_price_settings_stay_out_of_the_quick_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

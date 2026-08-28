@@ -109,9 +109,11 @@ def _compose_calculator_output() -> ComposeResult:
     yield Static("", id="calculation-error")
 
 
-def _compose_comparison() -> ComposeResult:
-    with Collapsible(title="比较渠道成本", collapsed=True, id="comparison-section"):
-        yield Static("按 1 亿混合 Token 估算。", classes="section-copy")
+def compose_comparison() -> ComposeResult:
+    """Build the always-available channel cost comparison view."""
+    with Vertical(id="comparison-workspace"):
+        yield Static("渠道价格对比", classes="section-heading")
+        yield Static("按当前换算参数和 1 亿混合 Token 用量计算。", classes="section-copy")
         yield DataTable(id="comparison-table", zebra_stripes=True)
 
 
@@ -124,7 +126,6 @@ def compose_calculator(settings: Settings) -> ComposeResult:
             with Vertical(id="calculator-output"):
                 yield from _compose_calculator_output()
         yield from _compose_pricing_settings(settings)
-        yield from _compose_comparison()
 
 
 def compose_channels() -> ComposeResult:

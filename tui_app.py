@@ -50,6 +50,7 @@ from unit_translator.adapters.tui.calculator import (
 from unit_translator.adapters.tui.views import (
     compose_calculator,
     compose_channels,
+    compose_comparison,
     compose_footer,
     compose_toolbar,
 )
@@ -410,9 +411,16 @@ class UnitTranslatorApp(App[None]):
         color: #ff9a91;
     }
 
-    #pricing-settings, #comparison-section {
+    #pricing-settings {
         margin-top: 1;
         padding: 0 1;
+        background: #101c25;
+        border: round #294555;
+    }
+
+    #comparison-workspace {
+        height: 1fr;
+        padding: 1;
         background: #101c25;
         border: round #294555;
     }
@@ -470,7 +478,8 @@ class UnitTranslatorApp(App[None]):
     }
 
     #comparison-table {
-        height: 10;
+        height: 1fr;
+        min-height: 5;
     }
 
     #channels-table {
@@ -630,6 +639,8 @@ class UnitTranslatorApp(App[None]):
         with TabbedContent(initial="calculator", id="main-tabs"):
             with TabPane("快速换算", id="calculator"):
                 yield from compose_calculator(self.settings)
+            with TabPane("价格对比", id="comparison"):
+                yield from compose_comparison()
             with TabPane("渠道管理", id="channels"):
                 yield from compose_channels()
         yield from compose_footer()

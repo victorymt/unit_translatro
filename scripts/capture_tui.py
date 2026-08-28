@@ -41,7 +41,9 @@ async def _capture_screen(
         config_path = Path(directory) / "settings.toml"
         app = UnitTranslatorApp(load_settings_document(config_path))
         async with app.run_test(size=size) as pilot:
-            if screen_name == "channels":
+            if screen_name == "comparison":
+                app.query_one("#main-tabs", TabbedContent).active = "comparison"
+            elif screen_name == "channels":
                 app.query_one("#main-tabs", TabbedContent).active = "channels"
             elif screen_name == "channel-editor":
                 app.query_one("#main-tabs", TabbedContent).active = "channels"
@@ -62,7 +64,7 @@ async def capture(output_dir: Path) -> None:
     """Export the key workflows at each supported viewport."""
     output_dir.mkdir(parents=True, exist_ok=True)
     for viewport_name, size in VIEWPORTS:
-        for screen_name in ("calculator", "channels", "channel-editor"):
+        for screen_name in ("calculator", "comparison", "channels", "channel-editor"):
             await _capture_screen(output_dir, viewport_name, size, screen_name)
 
 
