@@ -16,7 +16,7 @@ from typing import Callable
 from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Grid, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -33,10 +33,8 @@ from textual.widgets import (
 
 from app_config import Settings
 from converter_core import (
-    ConversionRequest,
     TokenPriceProfile,
     _positive,
-    calculate_conversion,
     format_decimal,
 )
 from settings_store import (
@@ -44,12 +42,16 @@ from settings_store import (
     load_settings_document,
     save_settings_document,
 )
-
-
-MODE_OPTIONS = (
-    ("固定倍率", "multiplier"),
-    ("固定账号成本", "fen"),
-    ("固定 1 亿 Token 成本", "token_cost"),
+from unit_translator.application import ConversionService
+from unit_translator.adapters.tui.calculator import (
+    CalculationDisplay,
+    CalculatorInputs,
+    calculate_display,
+)
+from unit_translator.adapters.tui.views import (
+    compose_calculator,
+    compose_channels,
+    compose_toolbar,
 )
 
 
@@ -456,97 +458,16 @@ class UnitTranslatorApp(App[None]):
         self._saved_settings = document.settings
         self._selected_channel_index: int | None = None
         self._suppress_input_events = False
+        self.conversion_service = ConversionService()
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Horizontal(id="workbench-toolbar"):
-            yield Static(f"配置: {self.document.path}", id="config-path")
-            yield Static("已保存", id="dirty-indicator")
-            yield Button("保存", id="save-settings", variant="success")
-            yield Button("还原", id="discard-settings")
+        yield from compose_toolbar(self.document.path)
         with TabbedContent(initial="calculator", id="main-tabs"):
             with TabPane("换算", id="calculator"):
-                with Horizontal(id="calculator-workspace"):
-                    with Vertical(id="calculator-form"):
-                        yield Static("ChatGPT 中转参数", classes="section-heading")
-                        with Horizontal(classes="form-field"):
-                            yield Label("换算模式")
-                            yield Select(
-                                MODE_OPTIONS,
-                                value="multiplier",
-                                allow_blank=False,
-                                id="calc-mode",
-                            )
-                        with Horizontal(classes="form-field"):
-                            yield Label("换算值")
-                            yield Input("0.05", id="calc-value", type="number")
-                            yield Static("", id="calc-value-unit", classes="form-unit")
-                        with Horizontal(classes="form-field"):
-                            yield Label("充值比例")
-                            yield Input(
-                                str(self.settings.balance_per_yuan),
-                                id="balance-per-yuan",
-                                type="number",
-                            )
-                            yield Static("刀/元", classes="form-unit")
-                        with Horizontal(classes="form-field"):
-                            yield Label("输入价")
-                            yield Input(
-                                str(self.settings.chatgpt_profile.input_price),
-                                id="chatgpt-input-price",
-                                type="number",
-                            )
-                            yield Static("刀/1M", classes="form-unit")
-                        with Horizontal(classes="form-field"):
-                            yield Label("输出价")
-                            yield Input(
-                                str(self.settings.chatgpt_profile.output_price),
-                                id="chatgpt-output-price",
-                                type="number",
-                            )
-                            yield Static("刀/1M", classes="form-unit")
-                        with Horizontal(classes="form-field"):
-                            yield Label("缓存价")
-                            yield Input(
-                                str(self.settings.chatgpt_profile.cached_price),
-                                id="chatgpt-cached-price",
-                                type="number",
-                            )
-                            yield Static("刀/1M", classes="form-unit")
-                        with Horizontal(classes="form-field"):
-                            yield Label("美元汇率")
-                            yield Input(
-                                str(self.settings.usd_cny_rate),
-                                id="usd-cny-rate",
-                                type="number",
-                            )
-                            yield Static("元/USD", classes="form-unit")
-                    with Vertical(id="calculator-output"):
-                        yield Static("换算结果", classes="section-heading")
-                        with Grid(id="result-grid"):
-                            with Vertical(classes="result-cell"):
-                                yield Static("倍率", classes="result-name")
-                                yield Static("--", id="result-multiplier", classes="result-value")
-                            with Vertical(classes="result-cell"):
-                                yield Static("账号成本", classes="result-name")
-                                yield Static("--", id="result-fen", classes="result-value")
-                            with Vertical(classes="result-cell"):
-                                yield Static("ChatGPT 1 亿成本", classes="result-name")
-                                yield Static("--", id="result-token-cost", classes="result-value")
-                            with Vertical(classes="result-cell"):
-                                yield Static("官方混合成本", classes="result-name")
-                                yield Static("--", id="result-official-cost", classes="result-value")
-                        yield Static("", id="calculation-error")
-                        yield Static("1 亿混合 Token 成本对比", classes="table-heading")
-                        yield DataTable(id="comparison-table", zebra_stripes=True)
+                yield from compose_calculator(self.settings)
             with TabPane("渠道", id="channels"):
-                with Horizontal(id="channel-toolbar"):
-                    yield Static("比较渠道目录")
-                    yield Button("新建", id="new-channel", variant="primary")
-                yield DataTable(id="channels-table", zebra_stripes=True, cursor_type="row")
-                with Horizontal(id="channel-actions"):
-                    yield Button("编辑", id="edit-channel")
-                    yield Button("删除", id="delete-channel", variant="error")
+                yield from compose_channels()
         yield Footer()
 
     def on_mount(self) -> None:
@@ -631,64 +552,49 @@ class UnitTranslatorApp(App[None]):
         }.get(str(mode), "")
         self.query_one("#calc-value-unit", Static).update(unit)
 
+    def _calculator_inputs(self) -> CalculatorInputs:
+        return CalculatorInputs(
+            mode=str(self.query_one("#calc-mode", Select).value),
+            value=self._input_value("calc-value"),
+            balance_per_yuan=self._input_value("balance-per-yuan"),
+            input_price=self._input_value("chatgpt-input-price"),
+            output_price=self._input_value("chatgpt-output-price"),
+            cached_price=self._input_value("chatgpt-cached-price"),
+            usd_cny_rate=self._input_value("usd-cny-rate"),
+        )
+
+    def _clear_calculation(self, message: str) -> None:
+        self.query_one("#calculation-error", Static).update(message)
+        for result_id in (
+            "result-multiplier",
+            "result-fen",
+            "result-token-cost",
+            "result-official-cost",
+        ):
+            self.query_one(f"#{result_id}", Static).update("--")
+        self.query_one("#comparison-table", DataTable).clear()
+
+    def _render_calculation(self, display: CalculationDisplay) -> None:
+        self.query_one("#calculation-error", Static).update("")
+        self.query_one("#result-multiplier", Static).update(display.multiplier)
+        self.query_one("#result-fen", Static).update(display.fen_per_dollar)
+        self.query_one("#result-token-cost", Static).update(display.token_cost_yuan)
+        self.query_one("#result-official-cost", Static).update(display.official_cost_usd)
+        table = self.query_one("#comparison-table", DataTable)
+        table.clear()
+        for row in display.comparison:
+            table.add_row(row.name, row.usd, row.yuan, row.relative_cost)
+
     def _refresh_calculation(self) -> None:
         self._set_calc_value_unit()
         try:
-            request = ConversionRequest(
-                mode=str(self.query_one("#calc-mode", Select).value),
-                value=self._input_value("calc-value"),
-                balance_per_yuan=self._input_value("balance-per-yuan"),
-                chatgpt_profile=TokenPriceProfile(
-                    self.settings.chatgpt_profile.name,
-                    self._input_value("chatgpt-input-price"),
-                    self._input_value("chatgpt-output-price"),
-                    self._input_value("chatgpt-cached-price"),
-                    provider=self.settings.chatgpt_profile.provider,
-                    model=self.settings.chatgpt_profile.model,
-                ),
-                usd_cny_rate=self._input_value("usd-cny-rate"),
-                usage=self.settings.usage,
-                comparison_profiles=self.settings.comparison_profiles,
+            display = calculate_display(
+                self._calculator_inputs(), self.settings, self.conversion_service
             )
-            result = calculate_conversion(request)
         except ValueError as exc:
-            self.query_one("#calculation-error", Static).update(str(exc))
-            for result_id in (
-                "result-multiplier",
-                "result-fen",
-                "result-token-cost",
-                "result-official-cost",
-            ):
-                self.query_one(f"#{result_id}", Static).update("--")
-            self.query_one("#comparison-table", DataTable).clear()
+            self._clear_calculation(str(exc))
             return
-
-        self.query_one("#calculation-error", Static).update("")
-        self.query_one("#result-multiplier", Static).update(
-            f"{format_decimal(result.multiplier)}x"
-        )
-        self.query_one("#result-fen", Static).update(
-            f"{format_decimal(result.fen_per_dollar)} 分/刀"
-        )
-        self.query_one("#result-token-cost", Static).update(
-            f"{format_decimal(result.token_cost_yuan)} 元"
-        )
-        self.query_one("#result-official-cost", Static).update(
-            f"${format_decimal(result.official_cost_usd)}"
-        )
-        table = self.query_one("#comparison-table", DataTable)
-        table.clear()
-        for row in result.comparison:
-            table.add_row(
-                row.name,
-                "--" if row.usd is None else f"${format_decimal(row.usd)}",
-                f"{format_decimal(row.yuan)} 元",
-                "基准"
-                if row.usd is None
-                else "--"
-                if row.relative_to_chatgpt is None
-                else f"{format_decimal(row.relative_to_chatgpt)}x",
-            )
+        self._render_calculation(display)
 
     def _refresh_channel_tables(self) -> None:
         table = self.query_one("#channels-table", DataTable)

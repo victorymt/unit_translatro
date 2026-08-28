@@ -17,11 +17,16 @@ from urllib.parse import unquote, urlsplit
 
 from converter_core import (
     ConversionValidationError,
-    calculate_conversion,
 )
-from converter_io import request_from_mapping, result_to_dict
+from converter_io import result_to_dict
 from app_config import Settings, load_settings
 from pricing_catalog import PricingCatalog, load_pricing_catalog
+from unit_translator.adapters.http import (
+    CONVERSION_PATHS,
+    HttpRequestError,
+    parse_conversion_payload,
+)
+from unit_translator.application import ConversionService
 
 
 MAX_BODY_BYTES = 256 * 1024
@@ -37,26 +42,6 @@ def _static_root() -> Path:
 
 STATIC_ROOT = _static_root()
 
-REQUEST_FIELDS = frozenset(
-    {
-        "mode",
-        "value",
-        "multiplier",
-        "fen",
-        "token_cost",
-        "balance_per_yuan",
-        "ratio",
-        "usage",
-        "chatgpt_profile",
-        "prices",
-        "usd_cny_rate",
-        "exchange_rate",
-        "comparison_profiles",
-        "profiles",
-    }
-)
-
-
 def _json_bytes(payload: object) -> bytes:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
@@ -66,6 +51,7 @@ class ConversionHandler(BaseHTTPRequestHandler):
     allowed_origins: frozenset[str] = frozenset()
     pricing_catalog: PricingCatalog = load_pricing_catalog()
     settings: Settings = Settings()
+    conversion_service: ConversionService = ConversionService(settings)
 
     @property
     def request_path(self) -> str:
@@ -165,43 +151,22 @@ class ConversionHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.request_path
-        if path not in {"/api/v1/convert", "/v1/convert", "/api/v1/compare", "/v1/compare"}:
+        if path not in CONVERSION_PATHS:
             self._send_json(404, {"error": {"code": "not_found", "message": "资源不存在"}})
             return
-        if self.headers.get("Content-Length") is None:
-            self._send_json(400, {"error": {"code": "missing_content_length", "message": "请求体缺少 Content-Length"}})
-            return
         try:
-            length = int(self.headers["Content-Length"])
-        except ValueError:
-            self._send_json(400, {"error": {"code": "invalid_content_length", "message": "Content-Length 无效"}})
+            payload = parse_conversion_payload(
+                self.rfile,
+                self.headers.get("Content-Length"),
+                max_body_bytes=MAX_BODY_BYTES,
+            )
+            result = self.conversion_service.convert_mapping(payload)
+        except HttpRequestError as exc:
+            self._send_json(
+                exc.status,
+                {"error": {"code": exc.code, "message": str(exc)}},
+            )
             return
-        if length < 0:
-            self._send_json(400, {"error": {"code": "invalid_content_length", "message": "Content-Length 不能为负数"}})
-            return
-        if length > MAX_BODY_BYTES:
-            self._send_json(413, {"error": {"code": "body_too_large", "message": "请求体过大"}})
-            return
-        try:
-            raw_body = self.rfile.read(length)
-            if len(raw_body) != length:
-                raise ValueError("请求体长度与 Content-Length 不一致")
-            payload = json.loads(raw_body)
-            if not isinstance(payload, dict):
-                raise ValueError("请求体必须是 JSON 对象")
-            unknown = sorted(set(payload) - REQUEST_FIELDS)
-            if unknown:
-                raise ConversionValidationError(
-                    unknown[0], "unknown_field", f"不支持的字段: {unknown[0]}"
-                )
-            if "value" not in payload and not any(
-                name in payload for name in ("multiplier", "fen", "token_cost")
-            ):
-                raise ConversionValidationError("value", "missing_field", "缺少 value")
-            if "usage" in payload and payload["usage"] == {}:
-                raise ConversionValidationError("usage", "empty_usage", "usage 不能为空")
-            request_payload = self.settings.apply_defaults(payload)
-            result = calculate_conversion(request_from_mapping(request_payload))
         except ConversionValidationError as exc:
             self._send_json(
                 422,
@@ -251,6 +216,7 @@ def create_server(
         allowed_origins = origins
         pricing_catalog = catalog
         settings = configured_settings
+        conversion_service = ConversionService(configured_settings)
 
     return ThreadingHTTPServer((host, port), ConfiguredConversionHandler)
 

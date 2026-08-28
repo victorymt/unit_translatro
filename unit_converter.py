@@ -54,6 +54,7 @@ from converter_core import (  # noqa: F401
 from app_config import load_settings
 from batch_processing import batch_to_csv, batch_to_json
 from converter_io import render_result
+from unit_translator.application import ConversionService
 
 
 def _display_width(text: str) -> int:
@@ -153,6 +154,87 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _request_from_args(args: argparse.Namespace, settings: object) -> ConversionRequest:
+    """Translate command-line flags into the typed application request."""
+    ratio = _positive(
+        args.ratio if args.ratio is not None else settings.balance_per_yuan,
+        "充值比例",
+    )
+    input_price = _non_negative(
+        args.token_price if args.token_price is not None else settings.chatgpt_profile.input_price,
+        "ChatGPT 输入 Token 官方价",
+    )
+    output_price = _non_negative(
+        args.output_price
+        if args.output_price is not None
+        else settings.chatgpt_profile.output_price,
+        "ChatGPT 输出 Token 官方价",
+    )
+    cached_price = _non_negative(
+        args.cache_price
+        if args.cache_price is not None
+        else settings.chatgpt_profile.cached_price,
+        "ChatGPT 缓存 Token 官方价",
+    )
+    usd_cny_rate = _positive(
+        args.usd_cny_rate if args.usd_cny_rate is not None else settings.usd_cny_rate,
+        "美元兑人民币汇率",
+    )
+    if args.token_cost is not None:
+        mode, value = "token_cost", args.token_cost
+    elif args.multiplier is not None:
+        mode, value = "multiplier", args.multiplier
+    else:
+        mode, value = "fen", args.fen
+    return ConversionRequest(
+        mode=mode,
+        value=value,
+        balance_per_yuan=ratio,
+        chatgpt_profile=TokenPriceProfile(
+            "ChatGPT 中转",
+            input_price,
+            output_price,
+            cached_price,
+            provider="ChatGPT relay",
+            model="custom",
+        ),
+        usd_cny_rate=usd_cny_rate,
+        usage=settings.usage,
+        comparison_profiles=settings.comparison_profiles,
+    )
+
+
+def _print_text_result(result: ConversionResult, balance_per_yuan: object) -> None:
+    """Render the human-oriented CLI output without application decisions."""
+    if result.mode == "token_cost":
+        print("换算口径: 固定 ChatGPT 1 亿混合 Token 实付成本，反推倍率")
+        print(f"ChatGPT 中转 1 亿混合 Token 实付: {format_decimal(result.token_cost_yuan)} 元")
+        print(f"等价账号成本: {format_decimal(result.fen_per_dollar)} 分/刀")
+        print(f"等价倍率: {format_decimal(result.multiplier)}x")
+    elif result.mode == "multiplier":
+        print("换算口径: 固定中转站倍率，按官方价格计算 Token 成本")
+        yuan = result.fen_per_dollar / ONE_HUNDRED
+        print(f"倍率: {format_decimal(result.multiplier)}x")
+        print(
+            f"等价成本: {format_decimal(result.fen_per_dollar)} 分/刀 "
+            f"({format_decimal(yuan)} 元/刀)"
+        )
+    else:
+        print("换算口径: 固定账号成本（分/刀），反推中转站倍率")
+        print(f"账号成本: {format_decimal(result.fen_per_dollar)} 分/刀")
+        print(f"等价倍率: {format_decimal(result.multiplier)}x")
+    print(f"充值比例: {format_decimal(balance_per_yuan)} 刀/元")
+    print("原始用量样本（已按比例归一化到 1 亿 Token）: 输入 12.73M / 输出 381.68K / 缓存 157.67M")
+    profile = result.chatgpt_profile
+    print(
+        "ChatGPT 官方单价（输入/输出/缓存）: "
+        f"{format_decimal(profile.input_price)}/{format_decimal(profile.output_price)}/"
+        f"{format_decimal(profile.cached_price)} 刀/百万 Token"
+    )
+    print(f"DeepSeek 美元汇率: {format_decimal(result.usd_cny_rate)} 元/USD")
+    _print_channel_comparison(result.comparison)
+
+
 def _run_cli(args: argparse.Namespace) -> int:
     try:
         settings = load_settings(args.config)
@@ -165,89 +247,12 @@ def _run_cli(args: argparse.Namespace) -> int:
                 print("批处理默认输出 JSON；请使用 --format json 或 --format csv")
                 return 2
             return 0
-        ratio = _positive(
-            args.ratio if args.ratio is not None else settings.balance_per_yuan,
-            "充值比例",
-        )
-        input_price = _non_negative(
-            args.token_price
-            if args.token_price is not None
-            else settings.chatgpt_profile.input_price,
-            "ChatGPT 输入 Token 官方价",
-        )
-        output_price = _non_negative(
-            args.output_price
-            if args.output_price is not None
-            else settings.chatgpt_profile.output_price,
-            "ChatGPT 输出 Token 官方价",
-        )
-        cached_price = _non_negative(
-            args.cache_price
-            if args.cache_price is not None
-            else settings.chatgpt_profile.cached_price,
-            "ChatGPT 缓存 Token 官方价",
-        )
-        usd_cny_rate = _positive(
-            args.usd_cny_rate if args.usd_cny_rate is not None else settings.usd_cny_rate,
-            "美元兑人民币汇率",
-        )
-        if args.token_cost is not None:
-            mode = "token_cost"
-            value = args.token_cost
-        elif args.multiplier is not None:
-            mode = "multiplier"
-            value = args.multiplier
-        else:
-            mode = "fen"
-            value = args.fen
-        result = calculate_conversion(
-            ConversionRequest(
-                mode=mode,
-                value=value,
-                balance_per_yuan=ratio,
-                chatgpt_profile=TokenPriceProfile(
-                    "ChatGPT 中转",
-                    input_price,
-                    output_price,
-                    cached_price,
-                    provider="ChatGPT relay",
-                    model="custom",
-                ),
-                usd_cny_rate=usd_cny_rate,
-                usage=settings.usage,
-                comparison_profiles=settings.comparison_profiles,
-            )
-        )
+        request = _request_from_args(args, settings)
+        result = ConversionService().convert(request)
         if args.output_format != "text":
             print(render_result(result, args.output_format))
             return 0
-        ratio_text = format_decimal(ratio)
-        if mode == "token_cost":
-            print("换算口径: 固定 ChatGPT 1 亿混合 Token 实付成本，反推倍率")
-            print(f"ChatGPT 中转 1 亿混合 Token 实付: {format_decimal(result.token_cost_yuan)} 元")
-            print(f"等价账号成本: {format_decimal(result.fen_per_dollar)} 分/刀")
-            print(f"等价倍率: {format_decimal(result.multiplier)}x")
-        elif mode == "multiplier":
-            print("换算口径: 固定中转站倍率，按官方价格计算 Token 成本")
-            yuan = result.fen_per_dollar / ONE_HUNDRED
-            print(f"倍率: {format_decimal(result.multiplier)}x")
-            print(
-                f"等价成本: {format_decimal(result.fen_per_dollar)} 分/刀 "
-                f"({format_decimal(yuan)} 元/刀)"
-            )
-        else:
-            print("换算口径: 固定账号成本（分/刀），反推中转站倍率")
-            print(f"账号成本: {format_decimal(result.fen_per_dollar)} 分/刀")
-            print(f"等价倍率: {format_decimal(result.multiplier)}x")
-        print(f"充值比例: {ratio_text} 刀/元")
-        print("用量配比: 输入 12.73M / 输出 381.68K / 缓存 157.67M")
-        print(
-            "ChatGPT 官方单价（输入/输出/缓存）: "
-            f"{format_decimal(input_price)}/{format_decimal(output_price)}/"
-            f"{format_decimal(cached_price)} 刀/百万 Token"
-        )
-        print(f"DeepSeek 美元汇率: {format_decimal(usd_cny_rate)} 元/USD")
-        _print_channel_comparison(result.comparison)
+        _print_text_result(result, request.balance_per_yuan)
     except ValueError as exc:
         print(f"错误: {exc}")
         return 2

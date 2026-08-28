@@ -8,8 +8,9 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from converter_core import DEFAULT_USAGE, ConversionResult, calculate_conversion
-from converter_io import request_from_mapping, result_to_dict
+from converter_core import DEFAULT_USAGE, ConversionResult
+from converter_io import result_to_dict
+from unit_translator.application import ConversionService
 
 if TYPE_CHECKING:
     from app_config import Settings
@@ -51,18 +52,11 @@ def _csv_record_to_request(
     return result
 
 
-def _apply_settings(record: Mapping[str, Any], settings: "Settings | None") -> dict[str, Any]:
-    if settings is None:
-        return dict(record)
-    return settings.apply_defaults(record)
-
-
 def iter_results(path: str | Path, settings: "Settings | None" = None) -> Iterator[ConversionResult]:
+    service = ConversionService(settings)
     for record in iter_records(path):
         request_data = _csv_record_to_request(record, settings)
-        yield calculate_conversion(
-            request_from_mapping(_apply_settings(request_data, settings))
-        )
+        yield service.convert_mapping(request_data)
 
 
 def batch_to_json(path: str | Path, settings: "Settings | None" = None) -> str:
