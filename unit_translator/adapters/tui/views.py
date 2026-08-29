@@ -22,17 +22,15 @@ def compose_toolbar(config_path: Path) -> ComposeResult:
     with Horizontal(id="workbench-toolbar"):
         with Vertical(id="workspace-brand"):
             yield Static("Unit Translator", id="workspace-title")
-            yield Static("成本换算", id="workspace-subtitle")
-        yield Static(f"配置 · {config_path.name}", id="config-path")
+        yield Static(config_path.name, id="config-path")
         yield Static("已保存", id="dirty-indicator")
         yield Button("保存", id="save-settings", variant="success")
         yield Button("还原", id="discard-settings")
 
 
 def compose_footer() -> ComposeResult:
-    """Show the few shortcuts that are useful during everyday calculation."""
-    with Horizontal(id="shortcut-bar"):
-        yield Static("Ctrl+S 保存 · Ctrl+D 还原 · Ctrl+Q 退出")
+    """Keep the footer extension point without adding persistent chrome."""
+    yield from ()
 
 
 def _compose_input_field(
@@ -51,7 +49,6 @@ def _compose_input_field(
 
 def _compose_calculator_form(settings: Settings) -> ComposeResult:
     yield Static("快速换算", classes="section-heading")
-    yield Static("输入一项，结果即时更新。", classes="section-copy")
     with Horizontal(classes="form-field"):
         yield Label("换算模式")
         yield Select(MODE_OPTIONS, value="multiplier", allow_blank=False, id="calc-mode")
@@ -66,10 +63,6 @@ def _compose_pricing_settings(settings: Settings) -> ComposeResult:
     """Keep persistent price settings available without blocking quick work."""
     profile = settings.chatgpt_profile
     with Collapsible(title="高级计价参数", collapsed=True, id="pricing-settings"):
-        yield Static(
-            "默认计价规则，修改后按 Ctrl+S 保存。",
-            classes="section-copy",
-        )
         with Grid(id="pricing-grid"):
             yield from _compose_input_field(
                 "充值比例", str(settings.balance_per_yuan), "balance-per-yuan", "刀/元"
@@ -99,7 +92,6 @@ def _compose_result_cell(
 
 def _compose_calculator_output() -> ComposeResult:
     yield Static("结果", classes="section-heading")
-    yield Static("核心成本。", classes="section-copy")
     with Grid(id="result-grid"):
         yield from _compose_result_cell("账号成本", "result-fen", primary=True)
         yield from _compose_result_cell("中转倍率", "result-multiplier")
@@ -112,7 +104,6 @@ def compose_comparison() -> ComposeResult:
     """Build the always-available channel cost comparison view."""
     with Vertical(id="comparison-workspace"):
         yield Static("价格对比", classes="section-heading")
-        yield Static("按当前参数计算。", classes="section-copy")
         yield DataTable(id="comparison-table", zebra_stripes=False)
 
 
@@ -132,7 +123,6 @@ def compose_channels() -> ComposeResult:
     with Horizontal(id="channel-toolbar"):
         with Vertical(id="channel-copy"):
             yield Static("比较渠道", id="channel-title")
-            yield Static("选择渠道查看详情。", id="channel-subtitle")
         yield Button("新建", id="new-channel", variant="primary")
     yield DataTable(id="channels-table", zebra_stripes=False, cursor_type="row")
     yield Static("选择一个渠道以查看详细信息。", id="channel-detail")

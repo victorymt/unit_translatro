@@ -223,15 +223,14 @@ class UnitTranslatorApp(App[None]):
     #workspace-brand {
         width: 22;
         height: 3;
+        content-align: left middle;
     }
 
     #workspace-title {
+        height: 3;
+        content-align: left middle;
         color: #e4e7e9;
         text-style: bold;
-    }
-
-    #workspace-subtitle {
-        color: #8c9398;
     }
 
     #config-path {
@@ -285,18 +284,6 @@ class UnitTranslatorApp(App[None]):
 
     #workbench-toolbar Button {
         margin-left: 1;
-    }
-
-    #shortcut-bar {
-        height: 1;
-        padding: 0 2;
-        background: #111315;
-        border-top: solid #252a2e;
-        color: #7d858b;
-    }
-
-    #shortcut-bar Static {
-        width: 1fr;
     }
 
     TabbedContent {
@@ -372,12 +359,6 @@ class UnitTranslatorApp(App[None]):
         text-style: bold;
     }
 
-    .section-copy {
-        height: auto;
-        margin-bottom: 1;
-        color: #899096;
-    }
-
     .form-field {
         height: 3;
         align: left middle;
@@ -426,10 +407,6 @@ class UnitTranslatorApp(App[None]):
     }
 
     #compact-error {
-        display: none;
-    }
-
-    #calculator-workspace.compact #calculator-form .section-copy {
         display: none;
     }
 
@@ -545,7 +522,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     #channel-toolbar {
-        height: 4;
+        height: 3;
         margin-bottom: 1;
     }
 
@@ -557,10 +534,6 @@ class UnitTranslatorApp(App[None]):
     #channel-title {
         color: #d3d7da;
         text-style: bold;
-    }
-
-    #channel-subtitle {
-        color: #899096;
     }
 
     #channel-toolbar Button, #channel-actions Button {
