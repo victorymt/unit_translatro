@@ -25,9 +25,8 @@ VIEWPORTS: tuple[tuple[str, tuple[int, int]], ...] = (
 )
 
 
-def _hide_collapsed_export_artifacts(app: UnitTranslatorApp) -> None:
-    """Work around Textual 8 SVG export drawing zero-sized collapsed children."""
-    app.query_one("#pricing-grid").display = False
+def _hide_export_artifacts(app: UnitTranslatorApp) -> None:
+    """Hide the inactive comparison table while exporting the calculator view."""
     app.query_one("#comparison-table").display = False
 
 
@@ -51,7 +50,7 @@ async def _capture_screen(
                 await pilot.click("#new-channel")
             await pilot.pause()
             if screen_name == "calculator":
-                _hide_collapsed_export_artifacts(app)
+                _hide_export_artifacts(app)
                 await pilot.pause()
             svg = app.export_screenshot(
                 title=f"Unit Translator — {screen_name} — {size[0]}x{size[1]}"
