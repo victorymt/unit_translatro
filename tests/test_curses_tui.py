@@ -4,7 +4,14 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from curses_tui import CursesTuiState, _draw_channels, display_width
+from curses_tui import (
+    CursesTuiState,
+    _draw_channels,
+    _draw_main,
+    _edit_channel,
+    _run_channels,
+    display_width,
+)
 from converter_core import TokenPriceProfile
 from settings_store import load_settings_document
 from unit_converter import launch_tui
@@ -59,6 +66,41 @@ class CursesTuiStateTests(unittest.TestCase):
     def test_display_width_handles_chinese_labels(self) -> None:
         self.assertEqual(display_width("渠道管理"), 8)
 
+    def test_edit_clears_stale_success_feedback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            state.message = "配置已保存"
+            state.edit(ord("2"))
+            self.assertEqual(state.message, "")
+
+    def test_calculation_error_does_not_replace_save_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            state.error = "配置文件无法保存: denied"
+            state.value = "-1"
+            screen = _RecordingScreen()
+            _draw_main(screen, state, (1, 2, 3, 4))
+            self.assertIn("配置文件无法保存", screen.lines[14])
+
+    def test_minimum_main_window_keeps_footer_below_results(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            screen = _RecordingScreen(height=20, width=72)
+            _draw_main(screen, state, (1, 2, 3, 4))
+            self.assertNotIn("Tab/方向键", screen.lines.get(18, ""))
+            self.assertIn("Tab/方向键", screen.lines[19])
+
+    def test_channel_edit_can_be_cancelled_with_escape(self) -> None:
+        class EscapeScreen(_RecordingScreen):
+            def getstr(self, *args: object) -> bytes:
+                return b"\x1b"
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            profile = state.settings.comparison_profiles[0]
+            with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+                self.assertIsNone(_edit_channel(EscapeScreen(), profile))
+
 
 class _RecordingScreen:
     def __init__(self, height: int = 24, width: int = 80) -> None:
@@ -80,6 +122,15 @@ class _RecordingScreen:
 
 
 class CursesChannelViewTests(unittest.TestCase):
+    def test_small_channel_window_shows_size_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            screen = _RecordingScreen(height=19, width=72)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4))
+            self.assertIn("终端窗口至少需要", "\n".join(screen.lines.values()))
+
     def test_channel_table_includes_all_core_pricing_fields(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = CursesTuiState.from_document(
@@ -120,6 +171,23 @@ class CursesChannelViewTests(unittest.TestCase):
             _draw_channels(second, state, 1, (1, 2, 3, 4))
             self.assertIn("source-one", "\n".join(first.lines.values()))
             self.assertIn("source-two", "\n".join(second.lines.values()))
+
+    def test_channel_exit_confirms_unsaved_changes(self) -> None:
+        class ConfirmingScreen(_RecordingScreen):
+            def __init__(self) -> None:
+                super().__init__()
+                self.keys = [ord("q"), ord("n"), ord("q"), ord("y")]
+
+            def getch(self) -> int:
+                return self.keys.pop(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            state.settings = replace(state.settings, comparison_profiles=())
+            _run_channels(ConfirmingScreen(), state, (1, 2, 3, 4))
+            self.assertTrue(state.is_dirty())
 
 
 class CursesTuiEntryPointTests(unittest.TestCase):

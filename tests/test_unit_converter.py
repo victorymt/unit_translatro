@@ -1,4 +1,5 @@
 import unittest
+import curses
 from contextlib import redirect_stdout
 from decimal import Decimal
 from io import StringIO
@@ -136,6 +137,12 @@ class ConversionTests(unittest.TestCase):
         with patch("unit_converter.launch_tui", return_value=0) as launcher:
             self.assertEqual(main(["--config", "missing.toml"]), 0)
         launcher.assert_called_once_with("missing.toml")
+
+    def test_interactive_mode_reports_ncurses_startup_errors(self) -> None:
+        with patch("unit_converter.launch_tui", side_effect=curses.error("setupterm failed")):
+            with self.assertRaises(SystemExit) as context:
+                main([])
+        self.assertEqual(context.exception.code, 2)
 
     def test_display_width_handles_wide_characters(self) -> None:
         self.assertEqual(_display_width("DeepSeek 渠道"), 13)

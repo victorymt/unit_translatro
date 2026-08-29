@@ -308,6 +308,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return launch_tui(args.config)
     except (ValueError, OSError) as exc:
         parser.error(f"无法启动终端界面: {exc}")
+    except Exception as exc:
+        # curses is imported lazily so batch and web imports stay lightweight.
+        import curses
+
+        if not isinstance(exc, curses.error):
+            raise
+        parser.error(f"无法启动终端界面: {exc}")
 
 
 if __name__ == "__main__":

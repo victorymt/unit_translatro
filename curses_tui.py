@@ -80,6 +80,7 @@ class CursesTuiState:
     replace_on_type: bool = True
     message: str = ""
     error: str = ""
+    calculation_error: str = ""
 
     @classmethod
     def from_document(cls, document: SettingsDocument) -> "CursesTuiState":
@@ -116,6 +117,7 @@ class CursesTuiState:
         self.value = MODE_DEFAULTS[mode]
         self.active_field = 0
         self.replace_on_type = True
+        self.message = ""
         self.error = ""
 
     def cycle_mode(self, step: int = 1) -> None:
@@ -128,10 +130,14 @@ class CursesTuiState:
         if key in (curses.KEY_BACKSPACE, 127, 8):
             self._set_field_value(name, "" if self.replace_on_type else current[:-1])
             self.replace_on_type = False
+            self.message = ""
+            self.error = ""
             return
         if key == 21:  # Ctrl+U
             self._set_field_value(name, "")
             self.replace_on_type = False
+            self.message = ""
+            self.error = ""
             return
         if key < 0 or key > 255:
             return
@@ -149,6 +155,8 @@ class CursesTuiState:
         if len(current) < 24:
             self._set_field_value(name, current + character)
             self.replace_on_type = False
+            self.message = ""
+            self.error = ""
 
     def calculator_inputs(self) -> CalculatorInputs:
         return CalculatorInputs(
@@ -285,9 +293,9 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
         display = state.calculate()
     except ValueError as exc:
         display = None
-        state.error = str(exc)
+        state.calculation_error = str(exc)
     else:
-        state.error = ""
+        state.calculation_error = ""
     _addstr(screen, 11, 2, "结果", curses.A_BOLD | accent)
     if display is not None:
         _addstr(screen, 12, 2, f"倍率 {display.multiplier}    账号成本 {display.fen_per_dollar}", curses.A_BOLD | success)
@@ -295,11 +303,14 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
         _addstr(screen, 15, 2, "渠道对比", curses.A_BOLD | accent)
         name_width = max(20, min(30, width - 49))
         _addstr(screen, 16, 2, f"{pad_display('渠道', name_width)} {'USD':>12} {'CNY':>14} {'相对成本':>10}", dim)
-        for row_index, row in enumerate(display.comparison[: max(0, height - 17)], start=17):
+        # Keep the footer row free so the last comparison entry is not
+        # overwritten on the documented 72 x 20 minimum terminal.
+        for row_index, row in enumerate(display.comparison[: max(0, height - 18)], start=17):
             name = pad_display(clip_display(row.name, name_width), name_width)
             _addstr(screen, row_index, 2, f"{name} {row.usd:>12} {row.yuan:>14} {row.relative_cost:>10}")
-    if state.error:
-        _addstr(screen, 14, 2, clip_display(state.error, width - 4), error_color)
+    visible_error = state.error or state.calculation_error
+    if visible_error:
+        _addstr(screen, 14, 2, clip_display(visible_error, width - 4), error_color)
     elif state.message:
         _addstr(screen, 14, 2, clip_display(state.message, width - 4), success)
     _addstr(screen, height - 1, 2, "Tab/方向键 编辑  m 切换模式  c 渠道  s 保存  r 还原  q 退出", dim)
@@ -314,7 +325,7 @@ def _confirm(screen: curses.window, prompt: str) -> bool:
     return key in (ord("y"), ord("Y"))
 
 
-def _prompt(screen: curses.window, row: int, label: str, default: str = "") -> str:
+def _prompt(screen: curses.window, row: int, label: str, default: str = "") -> str | None:
     """Read one bounded line while keeping curses rendering predictable."""
     height, width = screen.getmaxyx()
     if row >= height:
@@ -331,25 +342,43 @@ def _prompt(screen: curses.window, row: int, label: str, default: str = "") -> s
         raw = b""
     finally:
         curses.noecho()
+    if b"\x1b" in raw:
+        return None
     value = raw.decode("utf-8", errors="replace").strip()
     return value or default
+
+
+def _prompt_channel_values(
+    screen: curses.window,
+    profile: TokenPriceProfile | None,
+) -> dict[str, str] | None:
+    fields = (
+        ("name", 3, "名称", profile.name if profile else ""),
+        ("provider", 4, "提供商", profile.provider if profile else "custom"),
+        ("model", 5, "模型", profile.model if profile else ""),
+        ("input_price", 7, "输入价", str(profile.input_price) if profile else ""),
+        ("output_price", 8, "输出价", str(profile.output_price) if profile else ""),
+        ("cached_price", 9, "缓存价", str(profile.cached_price) if profile else ""),
+        ("effective_at", 11, "生效日期", profile.effective_at or "" if profile else ""),
+        ("source", 12, "来源", profile.source or "" if profile else ""),
+        ("version", 13, "版本", profile.version or "" if profile else ""),
+    )
+    values: dict[str, str] = {}
+    for name, row, label, default in fields:
+        value = _prompt(screen, row, label, default)
+        if value is None:
+            return None
+        values[name] = value
+    return values
 
 
 def _edit_channel(screen: curses.window, profile: TokenPriceProfile | None) -> TokenPriceProfile | None:
     """Edit one channel using fixed rows and blocking line input."""
     screen.erase()
     _addstr(screen, 1, 2, "新建渠道" if profile is None else "编辑渠道", curses.A_BOLD)
-    values = {
-        "name": _prompt(screen, 3, "名称", profile.name if profile else ""),
-        "provider": _prompt(screen, 4, "提供商", profile.provider if profile else "custom"),
-        "model": _prompt(screen, 5, "模型", profile.model if profile else ""),
-        "input_price": _prompt(screen, 7, "输入价", str(profile.input_price) if profile else ""),
-        "output_price": _prompt(screen, 8, "输出价", str(profile.output_price) if profile else ""),
-        "cached_price": _prompt(screen, 9, "缓存价", str(profile.cached_price) if profile else ""),
-        "effective_at": _prompt(screen, 11, "生效日期", profile.effective_at or "" if profile else ""),
-        "source": _prompt(screen, 12, "来源", profile.source or "" if profile else ""),
-        "version": _prompt(screen, 13, "版本", profile.version or "" if profile else ""),
-    }
+    values = _prompt_channel_values(screen, profile)
+    if values is None:
+        return None
     try:
         if not values["name"]:
             raise ValueError("渠道名称不能为空")
@@ -388,6 +417,11 @@ def _draw_channels(
     screen.erase()
     height, width = screen.getmaxyx()
     accent, _, error_color, dim = colors
+    if height < 20 or width < 72:
+        message = "终端窗口至少需要 72 x 20"
+        _addstr(screen, height // 2, max(0, (width - display_width(message)) // 2), message, error_color)
+        screen.refresh()
+        return
     _addstr(screen, 0, 2, "渠道管理", curses.A_BOLD | accent)
     _addstr(screen, 1, 2, "↑/↓ 选择  n 新建  e 编辑  d 删除  s 保存  Esc 返回", dim)
     _addstr(screen, 2, 2, "价格单位：USD / 1M tokens", dim)
@@ -452,6 +486,63 @@ def _draw_channels(
     screen.refresh()
 
 
+def _add_channel(
+    screen: curses.window,
+    state: CursesTuiState,
+    profiles: tuple[TokenPriceProfile, ...],
+    selected: int,
+) -> int:
+    profile = _edit_channel(screen, None)
+    if profile is None:
+        return selected
+    state.settings = replace(state.settings, comparison_profiles=(*profiles, profile))
+    state.message, state.error = "渠道已加入，按 s 保存", ""
+    return len(state.settings.comparison_profiles) - 1
+
+
+def _update_channel(
+    screen: curses.window,
+    state: CursesTuiState,
+    profiles: tuple[TokenPriceProfile, ...],
+    selected: int,
+) -> int:
+    profile = _edit_channel(screen, profiles[selected])
+    if profile is None:
+        return selected
+    updated = list(profiles)
+    updated[selected] = profile
+    state.settings = replace(state.settings, comparison_profiles=tuple(updated))
+    state.message, state.error = "渠道已修改，按 s 保存", ""
+    return selected
+
+
+def _delete_channel(
+    screen: curses.window,
+    state: CursesTuiState,
+    profiles: tuple[TokenPriceProfile, ...],
+    selected: int,
+) -> int:
+    if not _confirm(screen, f"删除“{profiles[selected].name}”吗"):
+        return selected
+    updated = list(profiles)
+    del updated[selected]
+    state.settings = replace(state.settings, comparison_profiles=tuple(updated))
+    state.message, state.error = "渠道已删除，按 s 保存", ""
+    return min(selected, max(0, len(updated) - 1))
+
+
+def _save_channels(state: CursesTuiState) -> None:
+    try:
+        state.save()
+    except ValueError as exc:
+        state.error, state.message = str(exc), ""
+
+
+def _restore_channels(screen: curses.window, state: CursesTuiState) -> None:
+    if state.is_dirty() and _confirm(screen, "还原未保存修改吗"):
+        state.discard()
+
+
 def _run_channels(screen: curses.window, state: CursesTuiState, colors: tuple[int, int, int, int]) -> None:
     selected = 0
     while True:
@@ -460,39 +551,23 @@ def _run_channels(screen: curses.window, state: CursesTuiState, colors: tuple[in
         _draw_channels(screen, state, selected, colors)
         key = screen.getch()
         if key in (27, ord("q"), ord("Q")):
+            if state.is_dirty() and not _confirm(screen, "存在未保存修改，返回吗"):
+                continue
             return
         if key in (curses.KEY_UP, ord("k")) and profiles:
             selected = max(0, selected - 1)
         elif key in (curses.KEY_DOWN, ord("j")) and profiles:
             selected = min(len(profiles) - 1, selected + 1)
         elif key in (ord("n"), ord("N")):
-            profile = _edit_channel(screen, None)
-            if profile is not None:
-                state.settings = replace(state.settings, comparison_profiles=(*profiles, profile))
-                selected = len(state.settings.comparison_profiles) - 1
-                state.message, state.error = "渠道已加入，按 s 保存", ""
+            selected = _add_channel(screen, state, profiles, selected)
         elif key in (ord("e"), ord("E")) and profiles:
-            profile = _edit_channel(screen, profiles[selected])
-            if profile is not None:
-                updated = list(profiles)
-                updated[selected] = profile
-                state.settings = replace(state.settings, comparison_profiles=tuple(updated))
-                state.message, state.error = "渠道已修改，按 s 保存", ""
+            selected = _update_channel(screen, state, profiles, selected)
         elif key in (ord("d"), ord("D")) and profiles:
-            if _confirm(screen, f"删除“{profiles[selected].name}”吗"):
-                updated = list(profiles)
-                del updated[selected]
-                state.settings = replace(state.settings, comparison_profiles=tuple(updated))
-                selected = min(selected, max(0, len(updated) - 1))
-                state.message, state.error = "渠道已删除，按 s 保存", ""
+            selected = _delete_channel(screen, state, profiles, selected)
         elif key in (ord("s"), ord("S"), 19):
-            try:
-                state.save()
-            except ValueError as exc:
-                state.error, state.message = str(exc), ""
+            _save_channels(state)
         elif key in (ord("r"), ord("R"), 4):
-            if state.is_dirty() and _confirm(screen, "还原未保存修改吗"):
-                state.discard()
+            _restore_channels(screen, state)
 
 
 def _run_main(screen: curses.window, state: CursesTuiState) -> None:
