@@ -69,8 +69,13 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             app, _ = self._app_for(directory)
             async with app.run_test(size=(120, 40)) as pilot:
+                settings = app.query_one("#pricing-settings")
                 grid = app.query_one("#pricing-grid")
+                pane = app.query_one("#calculator", TabPane)
+                self.assertGreater(settings.region.height, 1)
+                self.assertGreater(grid.region.height, 0)
                 self.assertGreater(grid.region.width, 0)
+                self.assertLessEqual(grid.region.bottom, pane.region.bottom)
                 for input_id in (
                     "balance-per-yuan",
                     "usd-cny-rate",
@@ -79,6 +84,17 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                     "chatgpt-cached-price",
                 ):
                     self.assertEqual(len(app.query(f"#{input_id}")), 1)
+
+    async def test_advanced_price_settings_scroll_only_when_terminal_is_too_short(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app, _ = self._app_for(directory)
+            async with app.run_test(size=(80, 24)) as pilot:
+                pane = app.query_one("#calculator", TabPane)
+                settings = app.query_one("#pricing-settings")
+                grid = app.query_one("#pricing-grid")
+                self.assertGreater(settings.region.height, 1)
+                self.assertGreater(grid.region.height, 0)
+                self.assertGreater(pane.max_scroll_y, 0)
 
     async def test_channel_crud_uses_editor_and_delete_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

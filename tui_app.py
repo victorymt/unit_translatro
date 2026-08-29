@@ -305,6 +305,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     TabPane {
+        height: 1fr;
         padding: 1 2;
         overflow-y: auto;
     }
@@ -433,6 +434,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     #pricing-settings {
+        height: auto;
         margin-top: 1;
         padding: 0;
         background: transparent;
@@ -447,6 +449,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     #pricing-grid {
+        height: auto;
         grid-size: 2;
         grid-columns: 1fr 1fr;
         grid-gutter: 1;
