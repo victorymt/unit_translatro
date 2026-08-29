@@ -11,10 +11,8 @@ import curses
 import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable
-
 from app_config import Settings
-from converter_core import TokenPriceProfile, _non_negative, _positive
+from converter_core import TokenPriceProfile, _non_negative, _positive, format_decimal
 from settings_store import (
     SettingsDocument,
     load_settings_document,
@@ -392,21 +390,61 @@ def _draw_channels(
     accent, _, error_color, dim = colors
     _addstr(screen, 0, 2, "渠道管理", curses.A_BOLD | accent)
     _addstr(screen, 1, 2, "↑/↓ 选择  n 新建  e 编辑  d 删除  s 保存  Esc 返回", dim)
+    _addstr(screen, 2, 2, "价格单位：USD / 1M tokens", dim)
     profiles = state.settings.comparison_profiles
     if not profiles:
         _addstr(screen, 4, 2, "暂无渠道", dim)
     else:
-        visible = max(1, height - 8)
+        # Keep every core pricing field in the list; only optional metadata is
+        # relegated to the selected-channel detail rows below.
+        price_width = 10
+        name_width = max(14, min(20, (width - 43) // 2))
+        provider_width = max(15, width - name_width - 43)
+        header = (
+            f"{pad_display('渠道', name_width)}  "
+            f"{pad_display('提供商 / 模型', provider_width)}  "
+            f"{pad_display('输入价', price_width)}  "
+            f"{pad_display('输出价', price_width)}  "
+            f"{pad_display('缓存价', price_width)}"
+        )
+        _addstr(screen, 3, 2, clip_display(header, width - 4), dim)
+        visible = max(1, height - 11)
         start = min(max(0, selected - visible + 1), max(0, len(profiles) - visible))
-        for row, index in enumerate(range(start, min(len(profiles), start + visible)), start=3):
+        for row, index in enumerate(range(start, min(len(profiles), start + visible)), start=4):
             profile = profiles[index]
             marker = ">" if index == selected else " "
-            text = f"{marker} {profile.name}  {profile.provider} / {profile.model or '未标注'}"
+            name = pad_display(clip_display(profile.name, name_width - 2), name_width - 2)
+            provider = pad_display(
+                clip_display(f"{profile.provider} / {profile.model or '未标注'}", provider_width),
+                provider_width,
+            )
+            text = (
+                f"{marker} {name}  {provider}  "
+                f"{format_decimal(profile.input_price):>{price_width}}  "
+                f"{format_decimal(profile.output_price):>{price_width}}  "
+                f"{format_decimal(profile.cached_price):>{price_width}}"
+            )
             _addstr(screen, row, 2, clip_display(text, width - 4), curses.A_REVERSE if index == selected else 0)
         profile = profiles[selected]
-        _addstr(screen, height - 5, 2, clip_display(f"缓存价 {profile.cached_price} USD/1M", width - 4), dim)
-        _addstr(screen, height - 4, 2, clip_display(f"生效 {profile.effective_at or '--'}  版本 {profile.version or '--'}", width - 4), dim)
-        _addstr(screen, height - 3, 2, clip_display(f"来源 {profile.source or '--'}", width - 4), dim)
+        detail_row = max(5, height - 5)
+        _addstr(screen, detail_row, 2, "选中渠道详情", dim)
+        _addstr(
+            screen,
+            detail_row + 1,
+            2,
+            clip_display(
+                f"生效 {profile.effective_at or '--'}  版本 {profile.version or '--'}",
+                width - 4,
+            ),
+            dim,
+        )
+        _addstr(
+            screen,
+            detail_row + 2,
+            2,
+            clip_display(f"来源 {profile.source or '--'}", width - 4),
+            dim,
+        )
     if state.error:
         _addstr(screen, height - 2, 2, clip_display(state.error, width - 4), error_color)
     elif state.message:
