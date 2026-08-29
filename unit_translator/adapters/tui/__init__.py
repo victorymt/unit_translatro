@@ -1,1 +1,1 @@
-"""Textual-specific presentation helpers."""
+"""Terminal presentation helpers shared by the ncurses adapter."""

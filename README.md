@@ -1,6 +1,6 @@
 # ChatGPT 中转 / DeepSeek 官方成本换算器
 
-用于换算 ChatGPT 账号的“几分 1 刀”成本与中转站倍率，并将同一份 Token 用量与可配置的官方 API 渠道直付成本进行对比。交互终端界面使用 Textual，项目依赖由 `uv` 管理。
+用于换算 ChatGPT 账号的“几分 1 刀”成本与中转站倍率，并将同一份 Token 用量与可配置的官方 API 渠道直付成本进行对比。交互终端界面使用标准库 ncurses，项目依赖由 `uv` 管理。
 
 ## 终端工作台
 
@@ -9,16 +9,16 @@ uv sync
 uv run unit-translator
 ```
 
-也可以使用 `uv run python unit_converter.py` 直接运行源码。这是一个 Textual 工作台，有“工作台”和“渠道管理”两个视图：
+也可以使用 `uv run python unit_converter.py` 直接运行源码。这是一个 ncurses 工作台，主屏包含换算和价格对比，渠道维护通过 `c` 进入：
 
 - 工作台实时计算倍率、账号成本、ChatGPT 中转的 1 亿混合 Token 成本，并在同一页展示 ChatGPT 中转与所有配置渠道的 USD、CNY 和相对成本。充值比例、ChatGPT 输入/输出/缓存价和美元汇率也在这里编辑。
-- 渠道页管理比较渠道，可新建、编辑和删除名称、提供商、模型、三类单价、生效日期、来源和版本。渠道单价固定为 `USD / 1M tokens`；ChatGPT 中转价格不在渠道列表中重复维护。
+- 渠道管理可新建、编辑和删除名称、提供商、模型、三类单价、生效日期、来源和版本。渠道单价固定为 `USD / 1M tokens`；ChatGPT 中转价格不在渠道列表中重复维护。
 
-默认按 `1 元 = 1 刀站内额度`、ChatGPT 输入 `5 刀`、输出 `30 刀`、缓存 `0.5 刀`、`1 USD = 7.2 CNY` 计算。宽终端使用双栏工作台；窄终端会将换算面板纵向排列，可在 `80 x 24` 中滚动操作。
+默认按 `1 元 = 1 刀站内额度`、ChatGPT 输入 `5 刀`、输出 `30 刀`、缓存 `0.5 刀`、`1 USD = 7.2 CNY` 计算。终端至少需要 `72 x 20`，推荐使用 `80 x 24` 或更大的窗口；主屏不使用滚动布局。
 
-`Ctrl+S` 保存、`Ctrl+D` 还原未保存修改、`Ctrl+Q` 退出。退出、还原和删除渠道均会要求确认。
+主屏使用 `Tab`/方向键切换输入框，`m` 切换换算模式，`s` 保存，`r` 还原，`c` 管理渠道，`q` 退出。渠道页使用 `n`/`e`/`d` 新建、编辑和删除；退出、还原和删除渠道均会要求确认。
 
-首次启动时，工作台会从内置价格目录生成可编辑的配置。未传 `--config` 时，目标路径由 `platformdirs` 决定（Linux 通常为 `~/.config/unit-translator/settings.toml`，也会遵从 `$XDG_CONFIG_HOME`）；文件只会在点击保存后创建。传入 `--config path/to/settings.toml` 或 `--config path/to/settings.json` 可改用指定文件，指定文件不存在时同样以默认配置打开，直到保存才创建。
+首次启动时，工作台会从内置价格目录生成可编辑的配置。未传 `--config` 时，目标路径由 `platformdirs` 决定（Linux 通常为 `~/.config/unit-translator/settings.toml`，也会遵从 `$XDG_CONFIG_HOME`）；文件只会在按 `s` 保存后创建。传入 `--config path/to/settings.toml` 或 `--config path/to/settings.json` 可改用指定文件，指定文件不存在时同样以默认配置打开，直到保存才创建。
 
 ## 命令行
 

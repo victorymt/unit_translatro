@@ -1,4 +1,4 @@
-"""UI-independent calculator input and presentation models for the Textual app."""
+"""UI-independent calculator input and presentation models for the TUI."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from unit_translator.application import ConversionService
 
 @dataclass(frozen=True)
 class CalculatorInputs:
-    """The editable calculator fields, independent from Textual widgets."""
+    """The editable calculator fields, independent from terminal rendering."""
 
     mode: str
     value: str

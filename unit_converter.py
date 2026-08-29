@@ -2,8 +2,8 @@
 """CLI compatibility facade for relay-cost conversion.
 
 Calculation stays in :mod:`converter_core`; interactive use is provided by the
-Textual application in :mod:`tui_app`. Importing this module remains safe for
-batch and web callers because Textual is imported only when the TUI starts.
+standard-library ncurses application. Importing this module remains safe for
+batch and web callers because curses is imported only when the TUI starts.
 """
 
 from __future__ import annotations
@@ -262,10 +262,10 @@ def _run_cli(args: argparse.Namespace) -> int:
 
 
 def launch_tui(config_path: str | Path | None = None) -> int:
-    """Launch the Textual workbench with a default or explicit editable config."""
-    from tui_app import launch_tui as run_textual_tui
+    """Launch the ncurses workbench with a default or explicit editable config."""
+    from curses_tui import run_curses_tui
 
-    return run_textual_tui(config_path)
+    return run_curses_tui(config_path)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

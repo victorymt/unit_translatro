@@ -17,17 +17,17 @@ CLI / TUI / HTTP / batch
 ## Boundaries
 
 - `converter_core.py` is the deterministic domain: value objects, validation,
-  and conversion calculations. It does not read files or know about Textual,
+  and conversion calculations. It does not read files or know about ncurses,
   HTTP, or command-line flags.
 - `unit_translator.application` owns use cases and the public request schema.
   `ConversionService` is the shared entry point for typed requests and request
   mappings.
 - `unit_translator.adapters` holds transport presentation concerns. The HTTP
-  adapter parses framing and the Textual adapter provides calculator view
+  adapter parses framing and the ncurses adapter provides calculator view
   models and compose fragments.
 - `app_config.py`, `pricing_catalog.py`, and `settings_store.py` provide
   file-backed settings, price catalogs, and editable-document persistence.
-- `unit_converter.py`, `web_api.py`, `tui_app.py`, and `batch_processing.py`
+- `unit_converter.py`, `web_api.py`, `curses_tui.py`, and `batch_processing.py`
   are composition roots. They select configuration and presentation, then
   delegate conversion work to `ConversionService`.
 

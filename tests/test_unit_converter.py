@@ -132,7 +132,7 @@ class ConversionTests(unittest.TestCase):
             main(["--serve", "--input-file", "requests.jsonl"])
         self.assertEqual(context.exception.code, 2)
 
-    def test_interactive_mode_passes_raw_config_path_to_textual_launcher(self) -> None:
+    def test_interactive_mode_passes_raw_config_path_to_ncurses_launcher(self) -> None:
         with patch("unit_converter.launch_tui", return_value=0) as launcher:
             self.assertEqual(main(["--config", "missing.toml"]), 0)
         launcher.assert_called_once_with("missing.toml")
