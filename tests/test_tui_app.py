@@ -50,15 +50,15 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                     str(app.query_one("#result-token-cost", Static).content), "5 元"
                 )
 
-    async def test_price_comparison_tab_shows_all_channels_on_narrow_terminal(self) -> None:
+    async def test_price_comparison_stays_on_main_workspace_on_narrow_terminal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app, _ = self._app_for(directory)
             async with app.run_test(size=(80, 24)) as pilot:
-                app.query_one("#main-tabs", TabbedContent).active = "comparison"
-                await pilot.pause()
+                tabs = app.query_one("#main-tabs", TabbedContent)
+                self.assertEqual([str(pane.id) for pane in tabs.query(TabPane)], ["calculator", "channels"])
+                self.assertEqual(len(app.query("#comparison")), 0)
                 table = app.query_one("#comparison-table", DataTable)
                 self.assertEqual(table.row_count, len(app.settings.comparison_profiles) + 1)
-                self.assertLessEqual(table.region.bottom, app.size.height)
                 self.assertIn("DeepSeek", str(table.get_row_at(1)[0]))
                 original_relative_cost = str(table.get_row_at(1)[3])
                 app.query_one("#calc-value", Input).value = "0.1"

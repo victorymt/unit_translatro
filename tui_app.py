@@ -442,7 +442,8 @@ class UnitTranslatorApp(App[None]):
     }
 
     #comparison-workspace {
-        height: 1fr;
+        height: auto;
+        margin-top: 1;
         padding: 1 0;
         background: transparent;
         border: none;
@@ -502,7 +503,7 @@ class UnitTranslatorApp(App[None]):
     }
 
     #comparison-table {
-        height: 1fr;
+        height: auto;
         min-height: 5;
     }
 
@@ -659,9 +660,8 @@ class UnitTranslatorApp(App[None]):
     def compose(self) -> ComposeResult:
         yield from compose_toolbar(self.document.path)
         with TabbedContent(initial="calculator", id="main-tabs"):
-            with TabPane("快速换算", id="calculator"):
+            with TabPane("工作台", id="calculator"):
                 yield from compose_calculator(self.settings)
-            with TabPane("价格对比", id="comparison"):
                 yield from compose_comparison()
             with TabPane("渠道管理", id="channels"):
                 yield from compose_channels()
