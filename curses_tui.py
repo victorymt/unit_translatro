@@ -270,11 +270,12 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
     _addstr(screen, 0, max(2, width - display_width(status) - 2), status, dim)
     _addstr(screen, 1, 2, clip_display(str(state.document.path), width - 4), dim)
 
-    mode_text = "  ".join(
-        f"[{label}]" if mode == state.mode else f" {label} "
-        for mode, label in MODE_LABELS.items()
-    )
-    _addstr(screen, 3, 2, mode_text, curses.A_REVERSE | accent)
+    mode_col = 2
+    for mode, label in MODE_LABELS.items():
+        mode_text = f"[{label}]" if mode == state.mode else f" {label} "
+        mode_attr = curses.A_REVERSE | accent if mode == state.mode else 0
+        _addstr(screen, 3, mode_col, mode_text, mode_attr)
+        mode_col += display_width(mode_text) + 2
     _field(screen, 5, 2, "换算值", state.value, "倍" if state.mode == "multiplier" else "分/刀", state.active_field == 0)
     _field(screen, 5, 38, "充值比例", state.balance_per_yuan, "刀/元", state.active_field == 1)
     _field(screen, 7, 2, "美元汇率", state.usd_cny_rate, "元/USD", state.active_field == 2)
