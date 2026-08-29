@@ -5,7 +5,6 @@ from pathlib import Path
 from textual.containers import VerticalScroll
 from textual.widgets import (
     Button,
-    Collapsible,
     DataTable,
     Input,
     Select,
@@ -66,14 +65,12 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 self.assertNotEqual(str(table.get_row_at(1)[3]), original_relative_cost)
 
-    async def test_advanced_price_settings_stay_out_of_the_quick_path(self) -> None:
+    async def test_advanced_price_settings_are_visible_without_extra_interaction(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app, _ = self._app_for(directory)
             async with app.run_test(size=(120, 40)) as pilot:
-                settings = app.query_one("#pricing-settings", Collapsible)
                 grid = app.query_one("#pricing-grid")
-                self.assertTrue(settings.collapsed)
-                self.assertEqual(grid.region.width, 0)
+                self.assertGreater(grid.region.width, 0)
                 for input_id in (
                     "balance-per-yuan",
                     "usd-cny-rate",
@@ -82,11 +79,6 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                     "chatgpt-cached-price",
                 ):
                     self.assertEqual(len(app.query(f"#{input_id}")), 1)
-
-                settings.collapsed = False
-                await pilot.pause()
-                self.assertFalse(settings.collapsed)
-                self.assertGreater(grid.region.width, 0)
 
     async def test_channel_crud_uses_editor_and_delete_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

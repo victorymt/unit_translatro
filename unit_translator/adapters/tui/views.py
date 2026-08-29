@@ -6,7 +6,7 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical
-from textual.widgets import Button, Collapsible, DataTable, Input, Label, Select, Static
+from textual.widgets import Button, DataTable, Input, Label, Select, Static
 
 from app_config import Settings
 
@@ -60,9 +60,10 @@ def _compose_calculator_form(settings: Settings) -> ComposeResult:
 
 
 def _compose_pricing_settings(settings: Settings) -> ComposeResult:
-    """Keep persistent price settings available without blocking quick work."""
+    """Keep persistent price settings visible alongside the quick calculator."""
     profile = settings.chatgpt_profile
-    with Collapsible(title="高级计价参数", collapsed=True, id="pricing-settings"):
+    with Vertical(id="pricing-settings"):
+        yield Static("高级计价参数", classes="section-heading")
         with Grid(id="pricing-grid"):
             yield from _compose_input_field(
                 "充值比例", str(settings.balance_per_yuan), "balance-per-yuan", "刀/元"
