@@ -1,7 +1,7 @@
 {
     "schema_version": 2,
-    "commit": "8d5bbcc893101052b12009ffee747eadfea964f9",
-    "indexed_at": "2026-08-29T17:50:23Z",
+    "commit": "64b971c6307a09d736955edf3dfddaf0b5a94639",
+    "indexed_at": "2026-08-29T17:51:15Z",
     "project": "data-project-unit_translator",
     "nodes": 472,
     "edges": 2528,
