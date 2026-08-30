@@ -84,7 +84,12 @@ def request_from_mapping(
     *,
     default_profiles: Sequence[TokenPriceProfile] = DEEPSEEK_PRICE_PROFILES,
 ) -> ConversionRequest:
-    """Parse the versioned public request schema into a domain request."""
+    """Parse the versioned public request schema into a domain request.
+
+    A ``token_cost`` request treats its value as the user's actual RMB spend
+    for 100,000,000 mixed tokens; the domain layer normalizes any supplied
+    usage mix to that total before calculating the equivalent multiplier.
+    """
     mode = str(data.get("mode", "multiplier"))
     if mode not in {"multiplier", "fen", "token_cost"}:
         raise ConversionValidationError(

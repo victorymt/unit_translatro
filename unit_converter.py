@@ -99,7 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument(
         "-t",
         "--token-cost",
-        help="ChatGPT 中转 1 亿混合 Token 的实付成本（元），例如 5",
+        help="用户自有 1 亿混合 Token 的实际支出（人民币元），例如 5",
     )
     parser.add_argument(
         "-r",
@@ -208,8 +208,8 @@ def _request_from_args(args: argparse.Namespace, settings: object) -> Conversion
 def _print_text_result(result: ConversionResult, balance_per_yuan: object) -> None:
     """Render the human-oriented CLI output without application decisions."""
     if result.mode == "token_cost":
-        print("换算口径: 固定 ChatGPT 1 亿混合 Token 实付成本，反推倍率")
-        print(f"ChatGPT 中转 1 亿混合 Token 实付: {format_decimal(result.token_cost_yuan)} 元")
+        print("换算口径: 固定用户自有 1 亿混合 Token 实际支出，反推倍率")
+        print(f"用户自有 1 亿混合 Token 实际支出: {format_decimal(result.token_cost_yuan)} 元")
         print(f"等价账号成本: {format_decimal(result.fen_per_dollar)} 分/刀")
         print(f"等价倍率: {format_decimal(result.multiplier)}x")
     elif result.mode == "multiplier":
@@ -225,7 +225,17 @@ def _print_text_result(result: ConversionResult, balance_per_yuan: object) -> No
         print(f"账号成本: {format_decimal(result.fen_per_dollar)} 分/刀")
         print(f"等价倍率: {format_decimal(result.multiplier)}x")
     print(f"充值比例: {format_decimal(balance_per_yuan)} 刀/元")
-    print("原始用量样本（已按比例归一化到 1 亿 Token）: 输入 12.73M / 输出 381.68K / 缓存 157.67M")
+    usage = result.usage
+    if usage.total_tokens == ONE_HUNDRED_MILLION:
+        usage_note = "已按比例归一化到 1 亿 Token"
+    else:
+        usage_note = f"当前总量 {format_decimal(usage.total_tokens)} Token"
+    print(
+        f"Token 用量配比（{usage_note}）: "
+        f"输入 {format_decimal(usage.input_tokens)} / "
+        f"输出 {format_decimal(usage.output_tokens)} / "
+        f"缓存 {format_decimal(usage.cached_tokens)}"
+    )
     profile = result.chatgpt_profile
     print(
         "ChatGPT 官方单价（输入/输出/缓存）: "

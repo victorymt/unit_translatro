@@ -106,6 +106,23 @@ class SettingsStoreTests(unittest.TestCase):
                 }
             )
 
+    def test_catalog_rejects_non_canonical_iso_effective_date(self) -> None:
+        with self.assertRaisesRegex(ValueError, "effective_at.*YYYY-MM-DD"):
+            PricingCatalog.from_mapping(
+                {
+                    "version": "custom",
+                    "profiles": [
+                        {
+                            "name": "Invalid",
+                            "input_price": "1",
+                            "output_price": "1",
+                            "cached_price": "1",
+                            "effective_at": "20260201",
+                        }
+                    ],
+                }
+            )
+
     def test_catalog_rejects_empty_version(self) -> None:
         with self.assertRaisesRegex(ValueError, "version.*不能为空"):
             PricingCatalog.from_mapping({"version": "  ", "profiles": []})

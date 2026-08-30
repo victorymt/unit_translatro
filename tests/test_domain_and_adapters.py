@@ -42,6 +42,28 @@ class DomainAndAdapterTests(unittest.TestCase):
         self.assertEqual(result.token_cost_yuan, Decimal("0.65"))
         self.assertEqual(result.comparison[1].provider, "test")
 
+    def test_fixed_cost_normalizes_custom_usage_to_one_hundred_million(self) -> None:
+        usage = TokenUsage("10", "20", "30")
+        profile = TokenPriceProfile("custom", "5", "30", "0.5", provider="test")
+        result = calculate_conversion(
+            ConversionRequest(
+                mode="token_cost",
+                value="5",
+                usage=usage,
+                chatgpt_profile=profile,
+                comparison_profiles=(profile,),
+            )
+        )
+        self.assertEqual(result.usage.total_tokens, Decimal("100000000.0000000000000000000"))
+        self.assertEqual(result.token_cost_yuan, Decimal("5.0000000000000000000000000"))
+        self.assertGreater(result.comparison[1].yuan, Decimal("7979"))
+        self.assertLess(result.comparison[1].yuan, Decimal("7980"))
+
+    def test_usage_normalization_handles_extreme_category_ratios(self) -> None:
+        normalized = TokenUsage("1e100", "1", "1").normalized_to()
+        self.assertEqual(normalized.total_tokens, Decimal("100000000.0000000000000000000"))
+        self.assertGreaterEqual(normalized.cached_tokens, Decimal("0"))
+
     def test_request_schema_accepts_flat_aliases(self) -> None:
         request = request_from_mapping(
             {
@@ -230,6 +252,29 @@ class DomainAndAdapterTests(unittest.TestCase):
                 payload = json.loads(response.read())
             self.assertEqual(payload["schema_version"], "1")
             self.assertEqual(payload["multiplier"], "0.05")
+            token_cost_request = Request(
+                f"{base_url}/api/v1/convert",
+                data=json.dumps(
+                    {
+                        "mode": "token_cost",
+                        "value": "5",
+                        "usage": {
+                            "input_tokens": "10",
+                            "output_tokens": "20",
+                            "cached_tokens": "30",
+                        },
+                    }
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(token_cost_request) as response:
+                token_cost_payload = json.loads(response.read())
+            self.assertEqual(token_cost_payload["token_cost_yuan"], "5.0000000000000000000000000")
+            self.assertEqual(
+                token_cost_payload["usage"]["total_tokens"],
+                "100000000.0000000000000000000",
+            )
             invalid = Request(
                 f"{base_url}/api/v1/convert",
                 data=json.dumps({"mode": "unknown", "value": "0.05"}).encode(),
@@ -309,11 +354,13 @@ class DomainAndAdapterTests(unittest.TestCase):
                 self.assertIn("/assets/app.js", html)
                 self.assertIn('id="input-tokens" inputmode="decimal" value="7453961.104025"', html)
                 self.assertIn('id="cached-tokens" inputmode="decimal" value="92322548.882292"', html)
+                self.assertIn("高级配比设置；固定成本模式会归一化到 1 亿 Token", html)
             with urlopen(f"{base_url}/assets/app.js") as response:
                 javascript = response.read().decode()
                 self.assertEqual(response.status, 200)
                 self.assertIn("/api/v1/convert", javascript)
                 self.assertIn('token_cost: "5"', javascript)
+                self.assertIn("用户自有 1 亿 Token 实际支出（元）", javascript)
                 self.assertIn("function displayNumber", javascript)
             with self.assertRaises(HTTPError) as context:
                 urlopen(f"{base_url}/assets/missing.css")

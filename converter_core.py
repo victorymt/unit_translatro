@@ -71,7 +71,9 @@ class TokenUsage:
     """A concrete input/output/cache token mix.
 
     The legacy sample mix remains the default so existing CLI behavior is
-    unchanged, while callers can now provide real usage records.
+    unchanged, while callers can now provide real usage records.  Fixed
+    one-hundred-million-token cost calculations use the mix as proportions and
+    normalize it to exactly 100,000,000 total tokens.
     """
 
     input_tokens: Number = DEFAULT_INPUT_TOKENS
@@ -96,6 +98,38 @@ class TokenUsage:
             "cached_tokens": str(self.cached_tokens),
             "total_tokens": str(self.total_tokens),
         }
+
+    def normalized_to(self, token_count: Number = ONE_HUNDRED_MILLION) -> "TokenUsage":
+        """Scale this input/output/cache mix to an explicit total token count.
+
+        The relative mix is preserved.  This is used by the fixed-cost mode so
+        a user's entered amount always represents the cost of 100 million
+        tokens, even when the optional usage editor contains a smaller sample
+        used only to describe the mix.
+        """
+        target = _positive(token_count, "目标 Token 数量")
+        # Keep enough significant digits for subtraction when one category is
+        # vastly larger than the others (for example, 1e100 input tokens and
+        # one cached token).  The default Decimal context would round the
+        # dominant category to the target and make the remainder negative.
+        components = (self.input_tokens, self.output_tokens, self.cached_tokens)
+        max_adjusted = max((value.adjusted() for value in components), default=0)
+        min_adjusted = min((value.adjusted() for value in components), default=0)
+        precision = max(
+            50,
+            len(target.as_tuple().digits),
+            *(len(value.as_tuple().digits) for value in components),
+        ) + (max_adjusted - min_adjusted) + abs(max_adjusted - target.adjusted()) + 10
+        with localcontext() as context:
+            context.prec = precision
+            total = sum(components, Decimal(0))
+            scale = target / total
+            input_tokens = self.input_tokens * scale
+            output_tokens = self.output_tokens * scale
+            # Assign the final category the Decimal rounding remainder so the
+            # public result reports exactly the requested total.
+            cached_tokens = target - input_tokens - output_tokens
+            return TokenUsage(input_tokens, output_tokens, cached_tokens)
 
 
 @dataclass(frozen=True)
@@ -185,7 +219,12 @@ DEFAULT_CHATGPT_PROFILE = TokenPriceProfile(
 
 @dataclass(frozen=True)
 class ConversionRequest:
-    """Validated at calculation time to keep construction convenient for adapters."""
+    """Validated at calculation time to keep construction convenient for adapters.
+
+    For ``mode="token_cost"``, ``value`` is the user's actual RMB spend for
+    100,000,000 mixed tokens.  ``usage`` supplies the input/output/cache mix;
+    its total is normalized to 100,000,000 for that mode.
+    """
 
     mode: str
     value: Number
@@ -386,6 +425,8 @@ def calculate_conversion(request: ConversionRequest) -> ConversionResult:
     rate = _positive(request.usd_cny_rate, "美元兑人民币汇率")
     usage = request.usage
     profile = request.chatgpt_profile
+    if request.mode == "token_cost":
+        usage = usage.normalized_to(ONE_HUNDRED_MILLION)
     if request.mode == "multiplier":
         multiplier = _non_negative(request.value, "倍率")
         fen = fen_from_multiplier(multiplier, ratio)
@@ -393,7 +434,7 @@ def calculate_conversion(request: ConversionRequest) -> ConversionResult:
         fen = _non_negative(request.value, "每刀价格")
         multiplier = multiplier_from_fen(fen, ratio)
     else:
-        cost = _non_negative(request.value, "ChatGPT 中转 1 亿 Token 成本")
+        cost = _non_negative(request.value, "用户自有 1 亿 Token 实际支出（元）")
         fen = fen_from_token_cost_for_usage(cost, usage, profile)
         multiplier = multiplier_from_fen(fen, ratio)
     cost = token_cost_yuan_for_usage(fen, usage, profile)

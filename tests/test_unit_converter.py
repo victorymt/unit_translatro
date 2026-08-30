@@ -68,6 +68,16 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(format_decimal(fen), "5.54718668")
         self.assertEqual(format_decimal(token_cost_yuan(fen)), "5")
 
+    def test_cli_token_cost_describes_user_actual_spend(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["--token-cost", "5"])
+        self.assertEqual(exit_code, 0)
+        text = output.getvalue()
+        self.assertIn("固定用户自有 1 亿混合 Token 实际支出", text)
+        self.assertIn("用户自有 1 亿混合 Token 实际支出: 5 元", text)
+        self.assertIn("Token 用量配比（已按比例归一化到 1 亿 Token）", text)
+
     def test_token_cost_requires_a_nonzero_official_price(self) -> None:
         with self.assertRaisesRegex(ValueError, "官方价不能全部为 0"):
             fen_from_token_cost(

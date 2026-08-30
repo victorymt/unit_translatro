@@ -11,7 +11,12 @@ from unit_translator.application import ConversionService
 
 @dataclass(frozen=True)
 class CalculatorInputs:
-    """The editable calculator fields, independent from terminal rendering."""
+    """The editable calculator fields, independent from terminal rendering.
+
+    In ``token_cost`` mode, ``value`` is the user's actual RMB spend for
+    100,000,000 mixed tokens.  The supplied usage is treated as a category mix
+    and normalized by the domain calculation.
+    """
 
     mode: str
     value: str

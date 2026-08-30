@@ -14,15 +14,17 @@ test("calculates defaults and switches conversion modes", async ({ page }) => {
   await expect(page.locator("#token-cost-result")).toHaveText("4.50678902 元");
   await expect(page.locator("#comparison-body tr")).toHaveCount(5);
 
-  await page.getByRole("button", { name: "Token 成本" }).click();
+  await page.getByRole("button", { name: "1 亿实际支出" }).click();
   await expect(page.locator("#value")).toHaveValue("5");
+  await expect(page.locator("#value-label")).toHaveText("用户自有 1 亿 Token 实际支出（元）");
+  await expect(page.locator("#value-help")).toContainText("实际支付的人民币金额");
   const tokenCostResponse = page.waitForResponse(
     (response) => response.url().endsWith("/api/v1/convert") && response.status() === 200,
   );
   await page.getByRole("button", { name: "计算成本" }).click();
   await tokenCostResponse;
   await expect(page.locator("#token-cost-result")).toHaveText("5 元");
-  await expect(page.locator("#result-mode")).toHaveText("Token 成本模式");
+  await expect(page.locator("#result-mode")).toHaveText("固定 1 亿实际支出模式");
 });
 
 test("shows validation feedback on the matching field", async ({ page }) => {

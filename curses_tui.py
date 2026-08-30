@@ -9,10 +9,19 @@ from __future__ import annotations
 
 import curses
 import unicodedata
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from decimal import Decimal
 from pathlib import Path
 from app_config import Settings
-from converter_core import TokenPriceProfile, _non_negative, _positive, format_decimal
+from converter_core import (
+    DEFAULT_USAGE,
+    TokenPriceProfile,
+    TokenUsage,
+    _non_negative,
+    _positive,
+    format_decimal,
+)
+from pricing_catalog import validate_catalog_date
 from settings_store import (
     SettingsDocument,
     load_settings_document,
@@ -29,7 +38,12 @@ from unit_translator.application import ConversionService
 MODE_LABELS = {
     "multiplier": "固定倍率",
     "fen": "固定账号成本",
-    "token_cost": "固定 1 亿成本",
+    "token_cost": "固定 1 亿实际支出",
+}
+MODE_HELP = {
+    "multiplier": "输入中转站倍率，按当前 Token 用量计算成本",
+    "fen": "输入账号每刀成本，反推倍率并计算当前 Token 用量成本",
+    "token_cost": "输入用户自有 1 亿 Token 的实际支出（元）；用量配比会归一化到 1 亿",
 }
 MODE_DEFAULTS = {"multiplier": "0.05", "fen": "5", "token_cost": "5"}
 FIELD_NAMES = (
@@ -40,6 +54,10 @@ FIELD_NAMES = (
     "output_price",
     "cached_price",
 )
+
+
+class _PromptInputError(Exception):
+    """Raised when the terminal cannot read a prompted value."""
 
 
 def display_width(text: str) -> int:
@@ -62,6 +80,30 @@ def pad_display(text: str, width: int) -> str:
     return text + " " * max(0, width - display_width(text))
 
 
+def _edit_display(value: str, cursor: int, width: int) -> tuple[str, int]:
+    """Return a visible slice of an ASCII numeric value and its local cursor."""
+    if width <= 0:
+        return "", 0
+    if len(value) <= width:
+        return value, max(0, min(len(value), cursor))
+    position = max(0, min(len(value), cursor))
+    start = max(0, min(position - width // 2, len(value) - width))
+    return value[start : start + width], position - start
+
+
+def _compact_tokens(value: object) -> str:
+    """Format token counts compactly enough for the minimum main screen."""
+    amount = Decimal(str(value))
+    for divisor, suffix in (
+        (Decimal("1000000000"), "B"),
+        (Decimal("1000000"), "M"),
+        (Decimal("1000"), "K"),
+    ):
+        if abs(amount) >= divisor:
+            return f"{format_decimal(amount / divisor)}{suffix}"
+    return format_decimal(amount)
+
+
 @dataclass
 class CursesTuiState:
     """Editable ncurses state kept independent from terminal rendering."""
@@ -76,11 +118,17 @@ class CursesTuiState:
     input_price: str = "5"
     output_price: str = "30"
     cached_price: str = "0.5"
+    input_tokens: str = str(DEFAULT_USAGE.input_tokens)
+    output_tokens: str = str(DEFAULT_USAGE.output_tokens)
+    cached_tokens: str = str(DEFAULT_USAGE.cached_tokens)
     active_field: int = 0
+    cursor: int = 0
     replace_on_type: bool = True
     message: str = ""
     error: str = ""
     calculation_error: str = ""
+    _calculation_cache_key: object = field(default=None, init=False, repr=False, compare=False)
+    _calculation_cache: CalculationDisplay | None = field(default=None, init=False, repr=False, compare=False)
 
     @classmethod
     def from_document(cls, document: SettingsDocument) -> "CursesTuiState":
@@ -95,6 +143,9 @@ class CursesTuiState:
             input_price=str(profile.input_price),
             output_price=str(profile.output_price),
             cached_price=str(profile.cached_price),
+            input_tokens=str(settings.usage.input_tokens),
+            output_tokens=str(settings.usage.output_tokens),
+            cached_tokens=str(settings.usage.cached_tokens),
         )
 
     def _field_value(self, name: str) -> str:
@@ -108,6 +159,7 @@ class CursesTuiState:
 
     def move_field(self, step: int) -> None:
         self.active_field = (self.active_field + step) % len(FIELD_NAMES)
+        self.cursor = 0
         self.replace_on_type = True
 
     def set_mode(self, mode: str) -> None:
@@ -116,6 +168,7 @@ class CursesTuiState:
         self.mode = mode
         self.value = MODE_DEFAULTS[mode]
         self.active_field = 0
+        self.cursor = 0
         self.replace_on_type = True
         self.message = ""
         self.error = ""
@@ -127,14 +180,43 @@ class CursesTuiState:
     def edit(self, key: int) -> None:
         name = FIELD_NAMES[self.active_field]
         current = self._field_value(name)
+        if key in (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_HOME, curses.KEY_END):
+            if self.replace_on_type:
+                self.replace_on_type = False
+                self.cursor = len(current)
+            if key == curses.KEY_LEFT:
+                self.cursor = max(0, self.cursor - 1)
+            elif key == curses.KEY_RIGHT:
+                self.cursor = min(len(current), self.cursor + 1)
+            elif key == curses.KEY_HOME:
+                self.cursor = 0
+            else:
+                self.cursor = len(current)
+            return
         if key in (curses.KEY_BACKSPACE, 127, 8):
-            self._set_field_value(name, "" if self.replace_on_type else current[:-1])
+            if self.replace_on_type:
+                current = ""
+                self.cursor = 0
+            elif self.cursor > 0:
+                current = current[: self.cursor - 1] + current[self.cursor :]
+                self.cursor -= 1
+            self._set_field_value(name, current)
             self.replace_on_type = False
+            self.message = ""
+            self.error = ""
+            return
+        if key == curses.KEY_DC:
+            if self.replace_on_type:
+                self.replace_on_type = False
+                self.cursor = len(current)
+            if self.cursor < len(current):
+                self._set_field_value(name, current[: self.cursor] + current[self.cursor + 1 :])
             self.message = ""
             self.error = ""
             return
         if key == 21:  # Ctrl+U
             self._set_field_value(name, "")
+            self.cursor = 0
             self.replace_on_type = False
             self.message = ""
             self.error = ""
@@ -146,14 +228,18 @@ class CursesTuiState:
             return
         if self.replace_on_type:
             current = ""
+            self.cursor = 0
         if character == "." and "." in current:
             return
         if character == "-" and current:
             return
         if character == "." and not current:
             current = "0"
+            self.cursor = 1
         if len(current) < 24:
-            self._set_field_value(name, current + character)
+            current = current[: self.cursor] + character + current[self.cursor :]
+            self._set_field_value(name, current)
+            self.cursor += 1
             self.replace_on_type = False
             self.message = ""
             self.error = ""
@@ -170,7 +256,27 @@ class CursesTuiState:
         )
 
     def calculate(self) -> CalculationDisplay:
-        return calculate_display(self.calculator_inputs(), self.settings, ConversionService())
+        inputs = self.calculator_inputs()
+        cache_key = (
+            inputs,
+            self.settings.usage,
+            self.settings.chatgpt_profile,
+            self.settings.comparison_profiles,
+            self.settings.version,
+        )
+        if cache_key == self._calculation_cache_key and self._calculation_cache is not None:
+            return self._calculation_cache
+        display = calculate_display(inputs, self.settings, ConversionService())
+        self._calculation_cache_key = cache_key
+        self._calculation_cache = display
+        return display
+
+    def usage_from_fields(self) -> TokenUsage:
+        return TokenUsage(
+            self.input_tokens,
+            self.output_tokens,
+            self.cached_tokens,
+        )
 
     def settings_from_fields(self) -> Settings:
         _positive(self.balance_per_yuan, "充值比例")
@@ -193,6 +299,7 @@ class CursesTuiState:
             self.settings,
             balance_per_yuan=self.balance_per_yuan,
             chatgpt_profile=updated_profile,
+            usage=self.usage_from_fields(),
             usd_cny_rate=self.usd_cny_rate,
         )
 
@@ -218,7 +325,11 @@ class CursesTuiState:
         self.input_price = str(profile.input_price)
         self.output_price = str(profile.output_price)
         self.cached_price = str(profile.cached_price)
+        self.input_tokens = str(self.settings.usage.input_tokens)
+        self.output_tokens = str(self.settings.usage.output_tokens)
+        self.cached_tokens = str(self.settings.usage.cached_tokens)
         self.value = MODE_DEFAULTS[self.mode]
+        self.cursor = 0
         self.replace_on_type = True
         self.message = "已还原未保存修改"
         self.error = ""
@@ -228,20 +339,24 @@ def _addstr(screen: curses.window, row: int, col: int, text: str, attr: int = 0)
     if row < 0 or row >= height or col < 0 or col >= width:
         return
     try:
-        screen.addnstr(row, col, text, max(0, width - col - 1), attr)
+        available = max(0, width - col - 1)
+        screen.addnstr(row, col, clip_display(text, available), available, attr)
     except curses.error:
         pass
 
 
 def _init_colors() -> tuple[int, int, int, int]:
-    if not curses.has_colors():
+    try:
+        if not curses.has_colors():
+            raise curses.error("terminal has no color support")
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_CYAN, -1)
+        curses.init_pair(2, curses.COLOR_GREEN, -1)
+        curses.init_pair(3, curses.COLOR_RED, -1)
+        return curses.color_pair(1), curses.color_pair(2), curses.color_pair(3), curses.A_DIM
+    except curses.error:
         return curses.A_BOLD, curses.A_BOLD, curses.A_BOLD, curses.A_DIM
-    curses.start_color()
-    curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_CYAN, -1)
-    curses.init_pair(2, curses.COLOR_GREEN, -1)
-    curses.init_pair(3, curses.COLOR_RED, -1)
-    return curses.color_pair(1), curses.color_pair(2), curses.color_pair(3), curses.A_DIM
 
 
 def _field(
@@ -252,10 +367,19 @@ def _field(
     value: str,
     unit: str,
     active: bool,
+    cursor: int | None = None,
 ) -> None:
     _addstr(screen, row, col, label)
     value_col = col + max(9, display_width(label) + 1)
-    value_text = f" {value or ' '} "
+    _, screen_width = screen.getmaxyx()
+    text_capacity = max(3, screen_width - value_col - display_width(unit) - 2)
+    value_capacity = text_capacity - 2
+    if active and cursor is not None:
+        shown, position = _edit_display(value, cursor, max(1, value_capacity - 1))
+        value_text = f" {shown[:position]}|{shown[position:]} "
+    else:
+        shown, _ = _edit_display(value, len(value), max(1, value_capacity))
+        value_text = f" {shown or ' '} "
     attr = curses.A_REVERSE | curses.A_BOLD if active else curses.A_BOLD
     _addstr(screen, row, value_col, value_text, attr)
     _addstr(screen, row, value_col + display_width(value_text) + 1, unit)
@@ -282,12 +406,44 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
         mode_attr = curses.A_REVERSE | accent if mode == state.mode else 0
         _addstr(screen, 3, mode_col, mode_text, mode_attr)
         mode_col += display_width(mode_text) + 2
-    _field(screen, 5, 2, "换算值", state.value, "倍" if state.mode == "multiplier" else "分/刀", state.active_field == 0)
-    _field(screen, 5, 38, "充值比例", state.balance_per_yuan, "刀/元", state.active_field == 1)
-    _field(screen, 7, 2, "美元汇率", state.usd_cny_rate, "元/USD", state.active_field == 2)
-    _field(screen, 7, 38, "输入价", state.input_price, "刀/1M", state.active_field == 3)
-    _field(screen, 9, 2, "输出价", state.output_price, "刀/1M", state.active_field == 4)
-    _field(screen, 9, 38, "缓存价", state.cached_price, "刀/1M", state.active_field == 5)
+    _addstr(screen, 4, 2, clip_display(MODE_HELP[state.mode], width - 4), dim)
+    value_label = "1 亿实际花费" if state.mode == "token_cost" else "换算值"
+    value_unit = {
+        "multiplier": "倍",
+        "fen": "分/刀",
+        "token_cost": "元/1亿 Token",
+    }[state.mode]
+    _field(
+        screen, 5, 2, value_label, state.value,
+        value_unit,
+        state.active_field == 0,
+        state.cursor if state.active_field == 0 else None,
+    )
+    _field(
+        screen, 5, 38, "充值比例", state.balance_per_yuan, "刀/元",
+        state.active_field == 1,
+        state.cursor if state.active_field == 1 else None,
+    )
+    _field(
+        screen, 7, 2, "美元汇率", state.usd_cny_rate, "元/USD",
+        state.active_field == 2,
+        state.cursor if state.active_field == 2 else None,
+    )
+    _field(
+        screen, 7, 38, "输入价", state.input_price, "刀/1M",
+        state.active_field == 3,
+        state.cursor if state.active_field == 3 else None,
+    )
+    _field(
+        screen, 9, 2, "输出价", state.output_price, "刀/1M",
+        state.active_field == 4,
+        state.cursor if state.active_field == 4 else None,
+    )
+    _field(
+        screen, 9, 38, "缓存价", state.cached_price, "刀/1M",
+        state.active_field == 5,
+        state.cursor if state.active_field == 5 else None,
+    )
 
     try:
         display = state.calculate()
@@ -298,14 +454,32 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
         state.calculation_error = ""
     _addstr(screen, 11, 2, "结果", curses.A_BOLD | accent)
     if display is not None:
-        _addstr(screen, 12, 2, f"倍率 {display.multiplier}    账号成本 {display.fen_per_dollar}", curses.A_BOLD | success)
-        _addstr(screen, 13, 2, f"1 亿成本 {display.token_cost_yuan}    官方成本 {display.official_cost_usd}", curses.A_BOLD)
-        _addstr(screen, 15, 2, "渠道对比", curses.A_BOLD | accent)
+        usage = state.settings.usage
+        usage_text = (
+            f"用量配比 I/O/C {_compact_tokens(usage.input_tokens)}/"
+            f"{_compact_tokens(usage.output_tokens)}/"
+            f"{_compact_tokens(usage.cached_tokens)}"
+        )
+        _addstr(
+            screen,
+            12,
+            2,
+            f"倍率 {display.multiplier}    账号成本 {display.fen_per_dollar}    {usage_text}",
+            curses.A_BOLD | success,
+        )
+        cost_label = "1 亿实际支出" if state.mode == "token_cost" else "当前用量成本"
+        _addstr(screen, 13, 2, f"{cost_label} {display.token_cost_yuan}    官方成本 {display.official_cost_usd}", curses.A_BOLD)
+        comparison_limit = max(0, height - 18)
+        comparison_total = len(display.comparison)
+        comparison_title = "渠道对比"
+        if comparison_total > comparison_limit:
+            comparison_title += f"（显示 {comparison_limit}/{comparison_total}，按 c 查看全部）"
+        _addstr(screen, 15, 2, clip_display(comparison_title, width - 4), curses.A_BOLD | accent)
         name_width = max(20, min(30, width - 49))
         _addstr(screen, 16, 2, f"{pad_display('渠道', name_width)} {'USD':>12} {'CNY':>14} {'相对成本':>10}", dim)
         # Keep the footer row free so the last comparison entry is not
         # overwritten on the documented 72 x 20 minimum terminal.
-        for row_index, row in enumerate(display.comparison[: max(0, height - 18)], start=17):
+        for row_index, row in enumerate(display.comparison[:comparison_limit], start=17):
             name = pad_display(clip_display(row.name, name_width), name_width)
             _addstr(screen, row_index, 2, f"{name} {row.usd:>12} {row.yuan:>14} {row.relative_cost:>10}")
     visible_error = state.error or state.calculation_error
@@ -313,7 +487,7 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
         _addstr(screen, 14, 2, clip_display(visible_error, width - 4), error_color)
     elif state.message:
         _addstr(screen, 14, 2, clip_display(state.message, width - 4), success)
-    _addstr(screen, height - 1, 2, "Tab/方向键 编辑  m 切换模式  c 渠道  s 保存  r 还原  q 退出", dim)
+    _addstr(screen, height - 1, 2, "Tab/方向键 编辑  m 模式  u 用量配比  c 渠道  s 保存  r 还原  q 退出", dim)
     screen.refresh()
 
 
@@ -328,20 +502,28 @@ def _confirm(screen: curses.window, prompt: str) -> bool:
 def _prompt(screen: curses.window, row: int, label: str, default: str = "") -> str | None:
     """Read one bounded line while keeping curses rendering predictable."""
     height, width = screen.getmaxyx()
-    if row >= height:
-        return default
+    if row >= height or width < 8:
+        raise _PromptInputError("终端窗口太小，请放大后重试")
     prefix = f"{label} [{default}]: " if default else f"{label}: "
     col = 2
     _addstr(screen, row, col, prefix)
     screen.refresh()
+    try:
+        curses.curs_set(1)
+    except curses.error:
+        pass
     curses.echo()
     try:
         available = max(1, width - col - display_width(prefix) - 2)
         raw = screen.getstr(row, min(width - 2, col + display_width(prefix)), available)
-    except curses.error:
-        raw = b""
+    except curses.error as exc:
+        raise _PromptInputError("终端输入失败，请重试") from exc
     finally:
         curses.noecho()
+        try:
+            curses.curs_set(0)
+        except curses.error:
+            pass
     if b"\x1b" in raw:
         return None
     value = raw.decode("utf-8", errors="replace").strip()
@@ -351,6 +533,7 @@ def _prompt(screen: curses.window, row: int, label: str, default: str = "") -> s
 def _prompt_channel_values(
     screen: curses.window,
     profile: TokenPriceProfile | None,
+    values: dict[str, str] | None = None,
 ) -> dict[str, str] | None:
     fields = (
         ("name", 3, "名称", profile.name if profile else ""),
@@ -363,49 +546,97 @@ def _prompt_channel_values(
         ("source", 12, "来源", profile.source or "" if profile else ""),
         ("version", 13, "版本", profile.version or "" if profile else ""),
     )
-    values: dict[str, str] = {}
+    previous = values or {}
+    collected: dict[str, str] = {}
     for name, row, label, default in fields:
-        value = _prompt(screen, row, label, default)
+        value = _prompt(screen, row, label, previous.get(name, default))
         if value is None:
             return None
-        values[name] = value
-    return values
+        collected[name] = value
+    return collected
+
+
+def _channel_from_values(
+    values: dict[str, str],
+    profile: TokenPriceProfile | None,
+) -> TokenPriceProfile:
+    if not values["name"]:
+        raise ValueError("渠道名称不能为空")
+    if not values["provider"]:
+        raise ValueError("提供商不能为空")
+    effective_at = values["effective_at"] or None
+    if effective_at:
+        effective_at = validate_catalog_date(effective_at, "生效日期")
+    return TokenPriceProfile(
+        values["name"],
+        values["input_price"],
+        values["output_price"],
+        values["cached_price"],
+        provider=values["provider"],
+        model=values["model"],
+        currency=profile.currency if profile else "USD",
+        unit=profile.unit if profile else "1M tokens",
+        effective_at=effective_at,
+        source=values["source"] or None,
+        version=values["version"] or None,
+    )
+
+
+def _channel_field_for_error(message: str) -> tuple[int, str, str] | None:
+    fields = {
+        "渠道名称": (3, "名称", "name"),
+        "提供商": (4, "提供商", "provider"),
+        "输入 Token": (7, "输入价", "input_price"),
+        "输出 Token": (8, "输出价", "output_price"),
+        "缓存 Token": (9, "缓存价", "cached_price"),
+        "生效日期": (11, "生效日期", "effective_at"),
+    }
+    for marker, field_spec in fields.items():
+        if marker in message:
+            return field_spec
+    return None
 
 
 def _edit_channel(screen: curses.window, profile: TokenPriceProfile | None) -> TokenPriceProfile | None:
     """Edit one channel using fixed rows and blocking line input."""
     screen.erase()
     _addstr(screen, 1, 2, "新建渠道" if profile is None else "编辑渠道", curses.A_BOLD)
-    values = _prompt_channel_values(screen, profile)
-    if values is None:
-        return None
-    try:
-        if not values["name"]:
-            raise ValueError("渠道名称不能为空")
-        if not values["provider"]:
-            raise ValueError("提供商不能为空")
-        effective_at = values["effective_at"] or None
-        if effective_at:
-            from datetime import date
-
-            date.fromisoformat(effective_at)
-        return TokenPriceProfile(
-            values["name"],
-            values["input_price"],
-            values["output_price"],
-            values["cached_price"],
-            provider=values["provider"],
-            model=values["model"],
-            effective_at=effective_at,
-            source=values["source"] or None,
-            version=values["version"] or None,
-        )
-    except ValueError as exc:
-        _addstr(screen, 15, 2, str(exc), curses.A_BOLD)
-        _addstr(screen, 17, 2, "按任意键返回", curses.A_DIM)
-        screen.refresh()
-        screen.getch()
-        return None
+    values: dict[str, str] | None = None
+    while True:
+        if values is None:
+            try:
+                values = _prompt_channel_values(screen, profile)
+            except _PromptInputError as exc:
+                _addstr(screen, 15, 2, str(exc), curses.A_BOLD)
+                _addstr(screen, 17, 2, "按任意键返回", curses.A_DIM)
+                screen.refresh()
+                screen.getch()
+                return None
+            if values is None:
+                return None
+        try:
+            return _channel_from_values(values, profile)
+        except ValueError as exc:
+            message = str(exc)
+            _addstr(screen, 15, 2, message, curses.A_BOLD)
+            field_spec = _channel_field_for_error(message)
+            if field_spec is None:
+                _addstr(screen, 17, 2, "按任意键返回", curses.A_DIM)
+                screen.refresh()
+                screen.getch()
+                return None
+            row, label, field_name = field_spec
+            try:
+                value = _prompt(screen, row, label, values[field_name])
+            except _PromptInputError as exc:
+                _addstr(screen, 15, 2, str(exc), curses.A_BOLD)
+                _addstr(screen, 17, 2, "按任意键返回", curses.A_DIM)
+                screen.refresh()
+                screen.getch()
+                return None
+            if value is None:
+                return None
+            values[field_name] = value
 
 
 def _draw_channels(
@@ -467,7 +698,7 @@ def _draw_channels(
             detail_row + 1,
             2,
             clip_display(
-                f"生效 {profile.effective_at or '--'}  版本 {profile.version or '--'}",
+                f"计价 {profile.currency}/{profile.unit}  生效 {profile.effective_at or '--'}  版本 {profile.version or '--'}",
                 width - 4,
             ),
             dim,
@@ -543,6 +774,58 @@ def _restore_channels(screen: curses.window, state: CursesTuiState) -> None:
         state.discard()
 
 
+def _run_usage(screen: curses.window, state: CursesTuiState, colors: tuple[int, int, int, int]) -> None:
+    """Edit the token mix used by every calculation without adding it to the main grid."""
+    _, _, error_color, dim = colors
+    screen.erase()
+    _addstr(screen, 1, 2, "Token 用量配比（高级）", curses.A_BOLD)
+    _addstr(
+        screen,
+        2,
+        2,
+        "单位：Token 数量；用于输入/输出/缓存配比；固定 1 亿实际支出模式会归一化到 1 亿；按 Enter 保留当前值，Esc 返回",
+        dim,
+    )
+    values = {
+        "input_tokens": state.input_tokens,
+        "output_tokens": state.output_tokens,
+        "cached_tokens": state.cached_tokens,
+    }
+    fields = (
+        ("input_tokens", 4, "输入 Token"),
+        ("output_tokens", 5, "输出 Token"),
+        ("cached_tokens", 6, "缓存 Token"),
+    )
+    while True:
+        try:
+            for name, row, label in fields:
+                value = _prompt(screen, row, label, values[name])
+                if value is None:
+                    return
+                values[name] = value
+            usage = TokenUsage(
+                values["input_tokens"],
+                values["output_tokens"],
+                values["cached_tokens"],
+            )
+        except _PromptInputError as exc:
+            _addstr(screen, 8, 2, str(exc), error_color)
+            screen.refresh()
+            screen.getch()
+            return
+        except ValueError as exc:
+            _addstr(screen, 8, 2, str(exc), error_color)
+            _addstr(screen, 10, 2, "请重新输入，Esc 返回", dim)
+            screen.refresh()
+            continue
+        state.settings = replace(state.settings, usage=usage)
+        state.input_tokens = str(usage.input_tokens)
+        state.output_tokens = str(usage.output_tokens)
+        state.cached_tokens = str(usage.cached_tokens)
+        state.message, state.error = "用量已修改，按 s 保存", ""
+        return
+
+
 def _run_channels(screen: curses.window, state: CursesTuiState, colors: tuple[int, int, int, int]) -> None:
     selected = 0
     while True:
@@ -570,6 +853,41 @@ def _run_channels(screen: curses.window, state: CursesTuiState, colors: tuple[in
             _restore_channels(screen, state)
 
 
+def _handle_main_key(
+    screen: curses.window,
+    state: CursesTuiState,
+    colors: tuple[int, int, int, int],
+    key: int,
+) -> bool:
+    """Apply one main-screen key and report whether the TUI should exit."""
+    if key in (ord("q"), ord("Q"), 27, 17):
+        return not state.is_dirty() or _confirm(screen, "存在未保存修改，退出吗")
+    if key in (ord("m"), ord("M")):
+        state.cycle_mode()
+    elif key in (9, curses.KEY_DOWN, 10, 13, curses.KEY_ENTER):
+        state.move_field(1)
+    elif key in (curses.KEY_UP, getattr(curses, "KEY_BTAB", -999)):
+        state.move_field(-1)
+    elif key in (ord("s"), ord("S"), 19):
+        try:
+            state.save()
+        except ValueError as exc:
+            state.error = str(exc)
+            state.message = ""
+    elif key in (ord("r"), ord("R"), 4):
+        if state.is_dirty() and _confirm(screen, "还原未保存修改吗"):
+            state.discard()
+    elif key in (ord("c"), ord("C")):
+        _run_channels(screen, state, colors)
+    elif key in (ord("u"), ord("U")):
+        _run_usage(screen, state, colors)
+    elif key == curses.KEY_RESIZE:
+        return False
+    else:
+        state.edit(key)
+    return False
+
+
 def _run_main(screen: curses.window, state: CursesTuiState) -> None:
     colors = _init_colors()
     try:
@@ -579,32 +897,8 @@ def _run_main(screen: curses.window, state: CursesTuiState) -> None:
     screen.keypad(True)
     while True:
         _draw_main(screen, state, colors)
-        key = screen.getch()
-        if key in (ord("q"), ord("Q"), 27, 17):
-            if state.is_dirty() and not _confirm(screen, "存在未保存修改，退出吗"):
-                continue
+        if _handle_main_key(screen, state, colors, screen.getch()):
             return
-        if key in (ord("m"), ord("M"), curses.KEY_LEFT, curses.KEY_RIGHT):
-            state.cycle_mode(-1 if key == curses.KEY_LEFT else 1)
-        elif key in (9, curses.KEY_DOWN, 10, 13, curses.KEY_ENTER):
-            state.move_field(1)
-        elif key == curses.KEY_UP:
-            state.move_field(-1)
-        elif key in (ord("s"), ord("S"), 19):
-            try:
-                state.save()
-            except ValueError as exc:
-                state.error = str(exc)
-                state.message = ""
-        elif key in (ord("r"), ord("R"), 4):
-            if state.is_dirty() and _confirm(screen, "还原未保存修改吗"):
-                state.discard()
-        elif key in (ord("c"), ord("C")):
-            _run_channels(screen, state, colors)
-        elif key == curses.KEY_RESIZE:
-            continue
-        else:
-            state.edit(key)
 
 
 def run_curses_tui(config_path: str | Path | None = None) -> int:

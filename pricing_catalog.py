@@ -41,6 +41,11 @@ def _catalog_date(value: object, label: str) -> date:
     return parsed
 
 
+def validate_catalog_date(value: object, label: str = "effective_at") -> str:
+    """Validate and normalize the catalog's canonical calendar date format."""
+    return _catalog_date(value, label).isoformat()
+
+
 @dataclass(frozen=True)
 class PricingCatalog:
     profiles: tuple[TokenPriceProfile, ...]
@@ -63,10 +68,10 @@ class PricingCatalog:
             effective_at = (
                 None
                 if raw_effective_at is None
-                else _catalog_date(
+                else validate_catalog_date(
                     raw_effective_at,
                     f"价格目录第 {index + 1} 项的 effective_at",
-                ).isoformat()
+                )
             )
             profiles.append(
                 TokenPriceProfile(

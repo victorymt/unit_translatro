@@ -1,5 +1,7 @@
 import tempfile
 import unittest
+import curses
+import curses_tui
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -9,10 +11,14 @@ from curses_tui import (
     _draw_channels,
     _draw_main,
     _edit_channel,
+    _handle_main_key,
+    _PromptInputError,
+    _prompt,
+    _run_usage,
     _run_channels,
     display_width,
 )
-from converter_core import TokenPriceProfile
+from converter_core import TokenPriceProfile, TokenUsage
 from settings_store import load_settings_document
 from unit_converter import launch_tui
 
@@ -42,6 +48,58 @@ class CursesTuiStateTests(unittest.TestCase):
             state.edit(ord("2"))
             self.assertEqual(state.balance_per_yuan, "2")
             self.assertTrue(state.is_dirty())
+
+    def test_fixed_cost_mode_shows_yuan_and_normalizes_usage_mix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            state.settings = replace(state.settings, usage=TokenUsage("10", "20", "30"))
+            state.set_mode("token_cost")
+            display = state.calculate()
+            self.assertEqual(display.token_cost_yuan, "5 元")
+            self.assertEqual(display.fen_per_dollar, "0.45112782 分/刀")
+            screen = _RecordingScreen(height=20, width=100)
+            _draw_main(screen, state, (1, 2, 3, 4))
+            output = "\n".join(screen.lines.values())
+            self.assertIn("元/1亿 Token", output)
+            self.assertIn("用量配比会归一化到 1 亿", output)
+
+    def test_numeric_editor_supports_cursor_navigation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            state.edit(curses.KEY_END)
+            state.edit(curses.KEY_LEFT)
+            state.edit(ord("9"))
+            self.assertEqual(state.value, "0.095")
+
+    def test_main_navigation_keeps_mode_switch_on_m_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            screen = _RecordingScreen()
+            _handle_main_key(screen, state, (1, 2, 3, 4), curses.KEY_RIGHT)
+            self.assertEqual(state.mode, "multiplier")
+            _handle_main_key(screen, state, (1, 2, 3, 4), ord("m"))
+            self.assertEqual(state.mode, "fen")
+
+    def test_usage_edit_is_saved_with_the_other_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            state.input_tokens = "10"
+            state.output_tokens = "20"
+            state.cached_tokens = "30"
+            state.save()
+            self.assertEqual(state.settings.usage.total_tokens, 60)
+            self.assertFalse(state.is_dirty())
+
+    def test_calculation_is_cached_until_inputs_or_settings_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            with patch("curses_tui.calculate_display", wraps=curses_tui.calculate_display) as calculate:
+                state.calculate()
+                state.calculate()
+                self.assertEqual(calculate.call_count, 1)
+                state.edit(ord("2"))
+                state.calculate()
+                self.assertEqual(calculate.call_count, 2)
 
     def test_invalid_input_is_reported_by_shared_calculator(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -90,6 +148,24 @@ class CursesTuiStateTests(unittest.TestCase):
             self.assertNotIn("Tab/方向键", screen.lines.get(18, ""))
             self.assertIn("Tab/方向键", screen.lines[19])
 
+    def test_minimum_main_window_identifies_hidden_comparisons(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            screen = _RecordingScreen(height=20, width=72)
+            _draw_main(screen, state, (1, 2, 3, 4))
+            self.assertIn("显示 2/5", "\n".join(screen.lines.values()))
+
+    def test_long_numeric_field_keeps_its_unit_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            state.balance_per_yuan = "123456789012345678901234"
+            state.active_field = 1
+            state.cursor = len(state.balance_per_yuan)
+            state.replace_on_type = False
+            screen = _RecordingScreen(height=20, width=72)
+            _draw_main(screen, state, (1, 2, 3, 4))
+            self.assertIn("刀/元", screen.lines[5])
+
     def test_channel_edit_can_be_cancelled_with_escape(self) -> None:
         class EscapeScreen(_RecordingScreen):
             def getstr(self, *args: object) -> bytes:
@@ -100,6 +176,94 @@ class CursesTuiStateTests(unittest.TestCase):
             profile = state.settings.comparison_profiles[0]
             with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
                 self.assertIsNone(_edit_channel(EscapeScreen(), profile))
+
+    def test_channel_edit_requires_canonical_date_and_keeps_values(self) -> None:
+        class ValuesScreen(_RecordingScreen):
+            def __init__(self) -> None:
+                super().__init__(height=24, width=100)
+                self.values = iter(
+                    [
+                        "demo",
+                        "custom",
+                        "model",
+                        "1",
+                        "2",
+                        "0.1",
+                        "20260201",
+                        "source",
+                        "v1",
+                        "2026-02-01",
+                    ]
+                )
+
+            def getstr(self, *args: object) -> bytes:
+                return next(self.values).encode()
+
+        with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+            profile = _edit_channel(ValuesScreen(), None)
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile.effective_at, "2026-02-01")
+
+    def test_prompt_input_errors_are_not_treated_as_defaults(self) -> None:
+        class ErrorScreen(_RecordingScreen):
+            def getstr(self, *args: object) -> bytes:
+                raise curses.error("read failed")
+
+        with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+            with self.assertRaises(_PromptInputError):
+                _prompt(ErrorScreen(), 1, "名称", "default")
+
+    def test_usage_screen_updates_state_without_saving_immediately(self) -> None:
+        class ValuesScreen(_RecordingScreen):
+            def __init__(self) -> None:
+                super().__init__(height=24, width=100)
+                self.values = iter(["10", "20", "30"])
+
+            def getstr(self, *args: object) -> bytes:
+                return next(self.values).encode()
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+                _run_usage(ValuesScreen(), state, (1, 2, 3, 4))
+            self.assertEqual(state.settings.usage.total_tokens, 60)
+            self.assertTrue(state.is_dirty())
+
+    def test_usage_screen_is_marked_as_advanced_ratio_configuration(self) -> None:
+        class ValuesScreen(_RecordingScreen):
+            def __init__(self) -> None:
+                super().__init__(height=24, width=100)
+                self.values = iter([b"1", b"2", b"3"])
+
+            def getstr(self, *args: object) -> bytes:
+                return next(self.values)
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            screen = ValuesScreen()
+            with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+                _run_usage(screen, state, (1, 2, 3, 4))
+            output = "\n".join(screen.lines.values())
+            self.assertIn("Token 用量配比（高级）", output)
+            self.assertIn("用于输入/输出/缓存配比", output)
+
+    def test_channel_edit_preserves_non_default_metadata(self) -> None:
+        class ValuesScreen(_RecordingScreen):
+            def __init__(self) -> None:
+                super().__init__(height=24, width=100)
+                self.values = iter(["x", "p", "m", "1", "2", "3", "2026-01-01", "s", "v"])
+
+            def getstr(self, *args: object) -> bytes:
+                return next(self.values).encode()
+
+        profile = TokenPriceProfile(
+            "x", "1", "2", "3", provider="p", model="m", currency="EUR", unit="1K tokens",
+            effective_at="2026-01-01", source="s", version="v",
+        )
+        with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+            updated = _edit_channel(ValuesScreen(), profile)
+        self.assertEqual(updated.currency, "EUR")
+        self.assertEqual(updated.unit, "1K tokens")
 
 
 class _RecordingScreen:
@@ -115,7 +279,10 @@ class _RecordingScreen:
         self.lines.clear()
 
     def addnstr(self, row: int, col: int, text: str, length: int, attr: int = 0) -> None:
-        self.lines[row] = text[:length]
+        line = self.lines.get(row, " " * self.width)
+        visible = text[:length]
+        line = line[:col] + visible + line[col + len(visible) :]
+        self.lines[row] = line
 
     def refresh(self) -> None:
         return

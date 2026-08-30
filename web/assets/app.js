@@ -1,7 +1,11 @@
 const modeLabels = {
   multiplier: ["中转站倍率", "例如 0.05 表示 0.05x", "倍率模式"],
   fen: ["账号成本（分/刀）", "例如 5 表示每刀 5 分", "分/刀模式"],
-  token_cost: ["1 亿 Token 实付成本（元）", "例如 5 表示实付 5 元", "Token 成本模式"],
+  token_cost: [
+    "用户自有 1 亿 Token 实际支出（元）",
+    "输入你实际支付的人民币金额；用量配比会归一化到 1 亿",
+    "固定 1 亿实际支出模式",
+  ],
 };
 const modeDefaults = {
   multiplier: "0.05",
@@ -156,7 +160,7 @@ function showError(error) {
     value: "value",
     倍率: "value",
     每刀价格: "value",
-    "ChatGPT 中转 1 亿 Token 成本": "value",
+    "用户自有 1 亿 Token 实际支出（元）": "value",
     充值比例: "balance-per-yuan",
     "美元兑人民币汇率": "usd-cny-rate",
     usage: "input-tokens",
@@ -179,6 +183,9 @@ function showError(error) {
 function render(result) {
   $("multiplier-result").textContent = `${displayNumber(result.multiplier)}x`;
   $("fen-result").textContent = `${displayNumber(result.fen_per_dollar)} 分/刀`;
+  $("token-cost-result-label").textContent = result.mode === "token_cost"
+    ? "1 亿实际支出"
+    : "当前用量成本";
   $("token-cost-result").textContent = `${displayNumber(result.token_cost_yuan)} 元`;
   $("official-cost-result").textContent = `${displayNumber(result.official_cost_usd)} USD`;
   const rows = result.comparison || [];

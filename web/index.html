@@ -29,7 +29,7 @@
         <div class="mode-switch" role="group" aria-label="换算模式">
           <button type="button" class="mode-button active" data-mode="multiplier">倍率</button>
           <button type="button" class="mode-button" data-mode="fen">分/刀</button>
-          <button type="button" class="mode-button" data-mode="token_cost">Token 成本</button>
+          <button type="button" class="mode-button" data-mode="token_cost">1 亿实际支出</button>
         </div>
 
         <form id="conversion-form" novalidate>
@@ -54,7 +54,7 @@
           <div class="subsection">
             <div class="subsection-heading">
               <h3>Token 用量</h3>
-              <span class="muted">默认使用 1 亿 Token 样本</span>
+              <span class="muted">高级配比设置；固定成本模式会归一化到 1 亿 Token</span>
             </div>
             <div class="form-grid token-grid">
               <label class="field"><span>输入 Token</span><input id="input-tokens" inputmode="decimal" value="7453961.104025"></label>
@@ -93,7 +93,7 @@
         <div id="summary" class="summary-grid" aria-live="polite">
           <div class="summary-item"><span>倍率</span><strong id="multiplier-result">--</strong></div>
           <div class="summary-item"><span>分/刀</span><strong id="fen-result">--</strong></div>
-          <div class="summary-item"><span>Token 成本</span><strong id="token-cost-result">--</strong></div>
+          <div class="summary-item"><span id="token-cost-result-label">Token 成本</span><strong id="token-cost-result">--</strong></div>
           <div class="summary-item"><span>官方成本</span><strong id="official-cost-result">--</strong></div>
         </div>
         <div class="comparison-heading">
