@@ -11,6 +11,7 @@ from curses_tui import (
     _draw_channels,
     _draw_main,
     _edit_channel,
+    _footer_text,
     _handle_main_key,
     _PromptInputError,
     _prompt,
@@ -138,7 +139,7 @@ class CursesTuiStateTests(unittest.TestCase):
             state.value = "-1"
             screen = _RecordingScreen()
             _draw_main(screen, state, (1, 2, 3, 4))
-            self.assertIn("配置文件无法保存", screen.lines[14])
+            self.assertIn("配置文件无法保存", screen.lines[11])
 
     def test_minimum_main_window_keeps_footer_below_results(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -153,7 +154,9 @@ class CursesTuiStateTests(unittest.TestCase):
             state = self._state(directory)
             screen = _RecordingScreen(height=20, width=72)
             _draw_main(screen, state, (1, 2, 3, 4))
-            self.assertIn("显示 2/5", "\n".join(screen.lines.values()))
+            output = "\n".join(screen.lines.values())
+            self.assertIn("渠道对比（5 个，按 c 查看全部）", output)
+            self.assertIn("渠道列表已折叠", output)
 
     def test_long_numeric_field_keeps_its_unit_visible(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -164,7 +167,32 @@ class CursesTuiStateTests(unittest.TestCase):
             state.replace_on_type = False
             screen = _RecordingScreen(height=20, width=72)
             _draw_main(screen, state, (1, 2, 3, 4))
-            self.assertIn("刀/元", screen.lines[5])
+            self.assertIn("刀/元", screen.lines[6])
+
+    def test_full_main_layout_prioritizes_cny_and_keeps_units_aligned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            screen = _RecordingScreen(height=24, width=80)
+            _draw_main(screen, state, (1, 2, 3, 4))
+            header = screen.lines[17]
+            self.assertIn("CNY", header)
+            self.assertIn("相对成本", header)
+            self.assertNotIn("USD", header)
+            self.assertIn("倍", screen.lines[6])
+            self.assertIn("刀/元", screen.lines[6])
+            self.assertIn("元/USD", screen.lines[8])
+            self.assertIn("编辑 Tab/方向键", screen.lines[23])
+
+    def test_grouped_footer_fits_full_and_compact_widths(self) -> None:
+        for width in (72, 80, 100):
+            self.assertLessEqual(display_width(_footer_text(width)), width - 4)
+
+    def test_usage_window_shows_size_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            screen = _RecordingScreen(height=19, width=72)
+            _run_usage(screen, state, (1, 2, 3, 4))
+            self.assertIn("终端窗口至少需要", "\n".join(screen.lines.values()))
 
     def test_channel_edit_can_be_cancelled_with_escape(self) -> None:
         class EscapeScreen(_RecordingScreen):

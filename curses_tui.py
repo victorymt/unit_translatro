@@ -80,6 +80,11 @@ def pad_display(text: str, width: int) -> str:
     return text + " " * max(0, width - display_width(text))
 
 
+def _right_display(text: str, width: int) -> str:
+    """Right-align text by terminal cell width rather than Python character count."""
+    return " " * max(0, width - display_width(text)) + text
+
+
 def _edit_display(value: str, cursor: int, width: int) -> tuple[str, int]:
     """Return a visible slice of an ASCII numeric value and its local cursor."""
     if width <= 0:
@@ -100,8 +105,77 @@ def _compact_tokens(value: object) -> str:
         (Decimal("1000"), "K"),
     ):
         if abs(amount) >= divisor:
-            return f"{format_decimal(amount / divisor)}{suffix}"
-    return format_decimal(amount)
+            return f"{format_decimal(amount / divisor, max_places=2)}{suffix}"
+    return format_decimal(amount, max_places=2)
+
+
+def _compact_screen(width: int, height: int) -> bool:
+    """Return whether the terminal needs the information-dense fallback layout."""
+    return width < 80 or height < 24
+
+
+def _draw_size_warning(screen: curses.window, error_color: int) -> bool:
+    """Draw the hard minimum warning and report whether rendering should stop."""
+    height, width = screen.getmaxyx()
+    if height >= 20 and width >= 72:
+        return False
+    message = "终端窗口至少需要 72 x 20"
+    _addstr(
+        screen,
+        height // 2,
+        max(0, (width - display_width(message)) // 2),
+        message,
+        error_color,
+    )
+    screen.refresh()
+    return True
+
+
+def _draw_rule(screen: curses.window, row: int, label: str, attr: int = 0) -> None:
+    """Draw a clipped section divider that remains safe on small terminals."""
+    _, width = screen.getmaxyx()
+    text = f"── {label} "
+    remaining = max(0, width - 4 - display_width(text))
+    _addstr(screen, row, 2, text + "─" * remaining, attr)
+
+
+def _footer_text(width: int, page: str = "main") -> str:
+    """Choose a grouped footer that fits while retaining the key exit hint."""
+    if page == "channels":
+        candidates = (
+            "选择 ↑/↓ j/k",
+            "操作 n 新建 e 编辑 d 删除",
+            "文件 s 保存 r 还原",
+            "返回 Esc/q",
+        )
+        fallback = (candidates[0], candidates[-1])
+    elif page == "usage":
+        candidates = ("编辑 Enter", "返回 Esc")
+        fallback = candidates
+    else:
+        candidates = (
+            "编辑 Tab/方向键",
+            "模式 m",
+            "页面 u 用量 c 渠道",
+            "文件 s 保存 r 还原",
+            "退出 q",
+        )
+        fallback = (candidates[0], candidates[1], candidates[-1])
+    for indexes in (
+        tuple(range(len(candidates))),
+        tuple(index for index in range(len(candidates)) if index not in {len(candidates) - 2}),
+        fallback,
+    ):
+        text = "  ".join(candidates[index] for index in indexes)
+        if display_width(text) <= max(1, width - 4):
+            return text
+    return clip_display("  ".join(fallback), max(1, width - 4))
+
+
+def _draw_footer(screen: curses.window, page: str = "main") -> None:
+    """Render the page footer with grouped, width-aware keyboard hints."""
+    height, _ = screen.getmaxyx()
+    _addstr(screen, height - 1, 2, _footer_text(screen.getmaxyx()[1], page), curses.A_DIM)
 
 
 @dataclass
@@ -368,12 +442,15 @@ def _field(
     unit: str,
     active: bool,
     cursor: int | None = None,
+    slot_width: int | None = None,
 ) -> None:
     _addstr(screen, row, col, label)
     value_col = col + max(9, display_width(label) + 1)
     _, screen_width = screen.getmaxyx()
-    text_capacity = max(3, screen_width - value_col - display_width(unit) - 2)
-    value_capacity = text_capacity - 2
+    if slot_width is None:
+        slot_width = max(3, screen_width - col - 2)
+    unit_col = col + max(3, slot_width - display_width(unit))
+    value_capacity = max(1, unit_col - value_col - 2)
     if active and cursor is not None:
         shown, position = _edit_display(value, cursor, max(1, value_capacity - 1))
         value_text = f" {shown[:position]}|{shown[position:]} "
@@ -382,31 +459,35 @@ def _field(
         value_text = f" {shown or ' '} "
     attr = curses.A_REVERSE | curses.A_BOLD if active else curses.A_BOLD
     _addstr(screen, row, value_col, value_text, attr)
-    _addstr(screen, row, value_col + display_width(value_text) + 1, unit)
+    _addstr(screen, row, unit_col, unit)
 
 
 def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, int, int, int]) -> None:
     screen.erase()
     height, width = screen.getmaxyx()
     accent, success, error_color, dim = colors
-    if height < 20 or width < 72:
-        message = "终端窗口至少需要 72 x 20"
-        _addstr(screen, height // 2, max(0, (width - display_width(message)) // 2), message, error_color)
-        screen.refresh()
+    if _draw_size_warning(screen, error_color):
         return
+    compact = _compact_screen(width, height)
 
     _addstr(screen, 0, 2, "Unit Translator", curses.A_BOLD | accent)
     status = "未保存" if state.is_dirty() else "已保存"
     _addstr(screen, 0, max(2, width - display_width(status) - 2), status, dim)
     _addstr(screen, 1, 2, clip_display(str(state.document.path), width - 4), dim)
 
+    content_width = max(1, width - 4)
+    column_width = max(24, (content_width - 3) // 2)
+    left_col = 2
+    right_col = left_col + column_width + 3
     mode_col = 2
     for mode, label in MODE_LABELS.items():
         mode_text = f"[{label}]" if mode == state.mode else f" {label} "
         mode_attr = curses.A_REVERSE | accent if mode == state.mode else 0
         _addstr(screen, 3, mode_col, mode_text, mode_attr)
-        mode_col += display_width(mode_text) + 2
+        mode_col += display_width(mode_text) + (1 if compact else 2)
     _addstr(screen, 4, 2, clip_display(MODE_HELP[state.mode], width - 4), dim)
+    _draw_rule(screen, 2, "模式", dim)
+    _draw_rule(screen, 5, "参数", dim)
     value_label = "1 亿实际花费" if state.mode == "token_cost" else "换算值"
     value_unit = {
         "multiplier": "倍",
@@ -414,35 +495,41 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
         "token_cost": "元/1亿 Token",
     }[state.mode]
     _field(
-        screen, 5, 2, value_label, state.value,
+        screen, 6, left_col, value_label, state.value,
         value_unit,
         state.active_field == 0,
         state.cursor if state.active_field == 0 else None,
+        column_width,
     )
     _field(
-        screen, 5, 38, "充值比例", state.balance_per_yuan, "刀/元",
+        screen, 6, right_col, "充值比例", state.balance_per_yuan, "刀/元",
         state.active_field == 1,
         state.cursor if state.active_field == 1 else None,
+        column_width,
     )
     _field(
-        screen, 7, 2, "美元汇率", state.usd_cny_rate, "元/USD",
+        screen, 8, left_col, "美元汇率", state.usd_cny_rate, "元/USD",
         state.active_field == 2,
         state.cursor if state.active_field == 2 else None,
+        column_width,
     )
     _field(
-        screen, 7, 38, "输入价", state.input_price, "刀/1M",
+        screen, 8, right_col, "输入价", state.input_price, "刀/1M",
         state.active_field == 3,
         state.cursor if state.active_field == 3 else None,
+        column_width,
     )
     _field(
-        screen, 9, 2, "输出价", state.output_price, "刀/1M",
+        screen, 10, left_col, "输出价", state.output_price, "刀/1M",
         state.active_field == 4,
         state.cursor if state.active_field == 4 else None,
+        column_width,
     )
     _field(
-        screen, 9, 38, "缓存价", state.cached_price, "刀/1M",
+        screen, 10, right_col, "缓存价", state.cached_price, "刀/1M",
         state.active_field == 5,
         state.cursor if state.active_field == 5 else None,
+        column_width,
     )
 
     try:
@@ -452,7 +539,7 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
         state.calculation_error = str(exc)
     else:
         state.calculation_error = ""
-    _addstr(screen, 11, 2, "结果", curses.A_BOLD | accent)
+    _draw_rule(screen, 12, "结果", accent)
     if display is not None:
         usage = state.settings.usage
         usage_text = (
@@ -460,34 +547,74 @@ def _draw_main(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
             f"{_compact_tokens(usage.output_tokens)}/"
             f"{_compact_tokens(usage.cached_tokens)}"
         )
+        cost_label = "1 亿实际支出" if state.mode == "token_cost" else "当前用量成本"
+        if compact:
+            _addstr(
+                screen,
+                13,
+                2,
+                f"倍率 {display.multiplier}  · 账号成本 {display.fen_per_dollar}",
+                curses.A_BOLD | success,
+            )
+            _addstr(screen, 14, 2, usage_text, dim)
+        else:
+            _addstr(
+                screen,
+                13,
+                2,
+                f"倍率 {display.multiplier}  · 账号成本 {display.fen_per_dollar}",
+                curses.A_BOLD | success,
+            )
+            _addstr(screen, 14, 2, usage_text, dim)
+        cost_row = 15
         _addstr(
             screen,
-            12,
+            cost_row,
             2,
-            f"倍率 {display.multiplier}    账号成本 {display.fen_per_dollar}    {usage_text}",
-            curses.A_BOLD | success,
+            f"{cost_label} {display.token_cost_yuan}  · 官方成本 {display.official_cost_usd}",
+            curses.A_BOLD,
         )
-        cost_label = "1 亿实际支出" if state.mode == "token_cost" else "当前用量成本"
-        _addstr(screen, 13, 2, f"{cost_label} {display.token_cost_yuan}    官方成本 {display.official_cost_usd}", curses.A_BOLD)
-        comparison_limit = max(0, height - 18)
+        comparison_title_row = 17 if compact else 16
+        comparison_header_row = comparison_title_row + 1
+        comparison_limit = 0 if compact else max(0, height - comparison_header_row - 2)
         comparison_total = len(display.comparison)
-        comparison_title = "渠道对比"
-        if comparison_total > comparison_limit:
-            comparison_title += f"（显示 {comparison_limit}/{comparison_total}，按 c 查看全部）"
-        _addstr(screen, 15, 2, clip_display(comparison_title, width - 4), curses.A_BOLD | accent)
-        name_width = max(20, min(30, width - 49))
-        _addstr(screen, 16, 2, f"{pad_display('渠道', name_width)} {'USD':>12} {'CNY':>14} {'相对成本':>10}", dim)
+        if compact:
+            comparison_title = f"渠道对比（{comparison_total} 个，按 c 查看全部）"
+        else:
+            comparison_title = "渠道对比"
+            if comparison_total > comparison_limit:
+                comparison_title += f"（显示 {comparison_limit}/{comparison_total}，按 c 查看全部）"
+        _addstr(screen, comparison_title_row, 2, clip_display(comparison_title, width - 4), curses.A_BOLD | accent)
+        if compact:
+            _addstr(screen, comparison_header_row, 2, "渠道列表已折叠", dim)
+        else:
+            name_width = max(18, min(44, width - 34))
+            _addstr(
+                screen,
+                comparison_header_row,
+                2,
+                f"{pad_display('渠道', name_width)}  {_right_display('CNY', 14)}  {_right_display('相对成本', 12)}",
+                dim,
+            )
         # Keep the footer row free so the last comparison entry is not
-        # overwritten on the documented 72 x 20 minimum terminal.
-        for row_index, row in enumerate(display.comparison[:comparison_limit], start=17):
+        # overwritten on the documented 80 x 24 terminal.
+        for row_index, row in enumerate(
+            display.comparison[:comparison_limit],
+            start=comparison_header_row + 1,
+        ):
             name = pad_display(clip_display(row.name, name_width), name_width)
-            _addstr(screen, row_index, 2, f"{name} {row.usd:>12} {row.yuan:>14} {row.relative_cost:>10}")
+            _addstr(
+                screen,
+                row_index,
+                2,
+                f"{name}  {_right_display(row.yuan, 14)}  {_right_display(row.relative_cost, 12)}",
+            )
     visible_error = state.error or state.calculation_error
     if visible_error:
-        _addstr(screen, 14, 2, clip_display(visible_error, width - 4), error_color)
+        _addstr(screen, 11, 2, clip_display(visible_error, width - 4), error_color)
     elif state.message:
-        _addstr(screen, 14, 2, clip_display(state.message, width - 4), success)
-    _addstr(screen, height - 1, 2, "Tab/方向键 编辑  m 模式  u 用量配比  c 渠道  s 保存  r 还原  q 退出", dim)
+        _addstr(screen, 11, 2, clip_display(state.message, width - 4), success)
+    _draw_footer(screen)
     screen.refresh()
 
 
@@ -648,26 +775,24 @@ def _draw_channels(
     screen.erase()
     height, width = screen.getmaxyx()
     accent, _, error_color, dim = colors
-    if height < 20 or width < 72:
-        message = "终端窗口至少需要 72 x 20"
-        _addstr(screen, height // 2, max(0, (width - display_width(message)) // 2), message, error_color)
-        screen.refresh()
+    if _draw_size_warning(screen, error_color):
         return
     _addstr(screen, 0, 2, "渠道管理", curses.A_BOLD | accent)
-    _addstr(screen, 1, 2, "↑/↓ 选择  n 新建  e 编辑  d 删除  s 保存  Esc 返回", dim)
-    _addstr(screen, 2, 2, "价格单位：USD / 1M tokens", dim)
+    _addstr(screen, 1, 2, clip_display("↑/↓ 或 j/k 选择  n 新建  e 编辑  d 删除  Esc 返回", width - 4), dim)
+    _draw_rule(screen, 2, "价格目录 · USD / 1M tokens", dim)
     profiles = state.settings.comparison_profiles
     if not profiles:
         _addstr(screen, 4, 2, "暂无渠道", dim)
     else:
         # Keep every core pricing field in the list; only optional metadata is
         # relegated to the selected-channel detail rows below.
-        price_width = 10
-        name_width = max(14, min(20, (width - 43) // 2))
-        provider_width = max(15, width - name_width - 43)
+        compact = _compact_screen(width, height)
+        price_width = 8 if compact else 10
+        name_width = max(12, min(18 if compact else 20, (width - (35 if compact else 43)) // 2))
+        provider_width = max(12, width - name_width - (35 if compact else 43))
         header = (
             f"{pad_display('渠道', name_width)}  "
-            f"{pad_display('提供商 / 模型', provider_width)}  "
+            f"{pad_display('提供商/模型', provider_width)}  "
             f"{pad_display('输入价', price_width)}  "
             f"{pad_display('输出价', price_width)}  "
             f"{pad_display('缓存价', price_width)}"
@@ -714,6 +839,7 @@ def _draw_channels(
         _addstr(screen, height - 2, 2, clip_display(state.error, width - 4), error_color)
     elif state.message:
         _addstr(screen, height - 2, 2, clip_display(state.message, width - 4), accent)
+    _draw_footer(screen, "channels")
     screen.refresh()
 
 
@@ -776,16 +902,27 @@ def _restore_channels(screen: curses.window, state: CursesTuiState) -> None:
 
 def _run_usage(screen: curses.window, state: CursesTuiState, colors: tuple[int, int, int, int]) -> None:
     """Edit the token mix used by every calculation without adding it to the main grid."""
-    _, _, error_color, dim = colors
+    accent, _, error_color, dim = colors
     screen.erase()
-    _addstr(screen, 1, 2, "Token 用量配比（高级）", curses.A_BOLD)
+    if _draw_size_warning(screen, error_color):
+        return
+    _addstr(screen, 0, 2, "Token 用量配比（高级）", curses.A_BOLD | accent)
+    _addstr(
+        screen,
+        1,
+        2,
+        "单位：Token 数量；用于输入/输出/缓存配比",
+        dim,
+    )
     _addstr(
         screen,
         2,
         2,
-        "单位：Token 数量；用于输入/输出/缓存配比；固定 1 亿实际支出模式会归一化到 1 亿；按 Enter 保留当前值，Esc 返回",
+        "固定 1 亿实际支出模式归一化到 1 亿；Enter 保留当前值，Esc 返回",
         dim,
     )
+    _draw_rule(screen, 3, "Token 配比", dim)
+    _draw_footer(screen, "usage")
     values = {
         "input_tokens": state.input_tokens,
         "output_tokens": state.output_tokens,
@@ -810,12 +947,14 @@ def _run_usage(screen: curses.window, state: CursesTuiState, colors: tuple[int, 
             )
         except _PromptInputError as exc:
             _addstr(screen, 8, 2, str(exc), error_color)
+            _draw_footer(screen, "usage")
             screen.refresh()
             screen.getch()
             return
         except ValueError as exc:
             _addstr(screen, 8, 2, str(exc), error_color)
             _addstr(screen, 10, 2, "请重新输入，Esc 返回", dim)
+            _draw_footer(screen, "usage")
             screen.refresh()
             continue
         state.settings = replace(state.settings, usage=usage)
