@@ -226,7 +226,7 @@ def _print_text_result(result: ConversionResult, balance_per_yuan: object) -> No
         print(f"等价倍率: {format_decimal(result.multiplier)}x")
     print(f"充值比例: {format_decimal(balance_per_yuan)} 刀/元")
     usage = result.usage
-    if usage.total_tokens == ONE_HUNDRED_MILLION:
+    if result.mode == "token_cost":
         usage_note = "已按比例归一化到 1 亿 Token"
     else:
         usage_note = f"当前总量 {format_decimal(usage.total_tokens)} Token"

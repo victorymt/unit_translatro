@@ -121,7 +121,7 @@ class ConversionTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("换算口径: 固定中转站倍率", text)
         self.assertIn("ChatGPT 官方单价（输入/输出/缓存）: 5/30/0.5", text)
-        self.assertIn("已按比例归一化到 1 亿 Token", text)
+        self.assertIn("Token 用量配比（当前总量 100000000 Token）", text)
         self.assertIn("DeepSeek 美元汇率: 7.2 元/USD", text)
         self.assertIn("相对成本倍数", text)
         self.assertIn("DeepSeek V4 Flash 谷", text)
