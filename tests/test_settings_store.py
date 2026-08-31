@@ -4,9 +4,9 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from app_config import Settings
-from pricing_catalog import PricingCatalog
-from settings_store import (
+from unit_translator.infrastructure.config import Settings
+from unit_translator.infrastructure.catalog import PricingCatalog
+from unit_translator.infrastructure.settings import (
     load_settings_document,
     resolve_tui_config_path,
     save_settings_document,

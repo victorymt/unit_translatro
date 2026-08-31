@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""CLI compatibility facade for relay-cost conversion.
+"""Command-line entry point for relay-cost conversion.
 
-Calculation stays in :mod:`converter_core`; interactive use is provided by the
+Calculation stays in :mod:`unit_translator.domain.conversion`; interactive use is provided by the
 standard-library ncurses application. Importing this module remains safe for
 batch and web callers because curses is imported only when the TUI starts.
 """
@@ -14,9 +14,7 @@ import unicodedata
 from pathlib import Path
 from typing import Sequence
 
-# Keep historical unit_converter exports available for scripts and existing
-# tests while the implementation lives in the dependency-free domain module.
-from converter_core import (  # noqa: F401
+from unit_translator.domain.conversion import (
     DEFAULT_CACHED_PRICE,
     DEFAULT_INPUT_PRICE,
     DEFAULT_OUTPUT_PRICE,
@@ -52,9 +50,9 @@ from converter_core import (  # noqa: F401
     token_cost_yuan,
     token_cost_yuan_for_usage,
 )
-from app_config import load_settings
-from batch_processing import batch_to_csv, batch_to_json, write_batch_csv, write_batch_json
-from converter_io import render_result
+from unit_translator.infrastructure.config import load_settings
+from unit_translator.adapters.batch import write_batch_csv, write_batch_json
+from unit_translator.adapters.serialization import render_result
 from unit_translator.application import ConversionService
 
 
@@ -273,7 +271,7 @@ def _run_cli(args: argparse.Namespace) -> int:
 
 def launch_tui(config_path: str | Path | None = None) -> int:
     """Launch the ncurses workbench with a default or explicit editable config."""
-    from curses_tui import run_curses_tui
+    from unit_translator.adapters.tui.app import run_curses_tui
 
     return run_curses_tui(config_path)
 
@@ -303,7 +301,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if conflicts:
             parser.error(f"--serve 不能与 {', '.join(conflicts)} 同时使用")
         try:
-            from web_api import run_server
+            from unit_translator.adapters.web import run_server
 
             run_server(args.host, args.port, settings_path=args.config)
             return 0

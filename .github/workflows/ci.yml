@@ -28,11 +28,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Compile Python sources
-        run: >-
-          python -m compileall -q
-          converter_core.py converter_io.py batch_processing.py
-          app_config.py pricing_catalog.py web_api.py unit_converter.py
-          unit_translator tests
+        run: python -m compileall -q unit_translator tests
 
       - name: Run batch CLI smoke test
         shell: bash
@@ -40,7 +36,7 @@ jobs:
           request_file="${RUNNER_TEMP}/requests.jsonl"
           result_file="${RUNNER_TEMP}/result.json"
           printf '%s\n' '{"mode":"multiplier","value":"0.05"}' > "${request_file}"
-          python unit_converter.py --input-file "${request_file}" --format json > "${result_file}"
+          python -m unit_translator --input-file "${request_file}" --format json > "${result_file}"
           RESULT_FILE="${result_file}" python -c 'import json, os; payload = json.load(open(os.environ["RESULT_FILE"])); assert payload[0]["mode"] == "multiplier"; assert payload[0]["multiplier"] == "0.05"'
 
       - name: Build wheel
@@ -58,8 +54,8 @@ jobs:
           import threading
           from urllib.request import urlopen
 
-          from pricing_catalog import load_pricing_catalog
-          from web_api import create_server
+          from unit_translator.adapters.web import create_server
+          from unit_translator.infrastructure.catalog import load_pricing_catalog
 
           catalog = load_pricing_catalog()
           assert catalog.version == "pricing-2026-08-21"

@@ -7,23 +7,18 @@ rate explicitly, while this module provides a file-backed default for adapters.
 from __future__ import annotations
 
 import json
-import sysconfig
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
-from converter_core import DEEPSEEK_PRICE_PROFILES, TokenPriceProfile
+from unit_translator.domain.conversion import DEEPSEEK_PRICE_PROFILES, TokenPriceProfile
 
 
 
 def _default_catalog_path() -> Path:
-    local_path = Path(__file__).with_name("config") / "default_profiles.json"
-    if local_path.is_file():
-        return local_path
-    data_root = Path(sysconfig.get_path("data") or sysconfig.get_config_var("prefix"))
-    return data_root / "config" / "default_profiles.json"
+    return Path(__file__).resolve().parents[1] / "resources" / "default_profiles.json"
 
 
 DEFAULT_CATALOG_PATH = _default_catalog_path()

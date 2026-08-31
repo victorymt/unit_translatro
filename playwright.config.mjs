@@ -12,7 +12,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "python3 unit_converter.py --serve --host 127.0.0.1 --port 8878",
+    command: "python3 -m unit_translator --serve --host 127.0.0.1 --port 8878",
     url: "http://127.0.0.1:8878/api/v1/health",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

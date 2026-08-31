@@ -1,6 +1,6 @@
 """Public package API for embedding the converter in other applications."""
 
-from converter_core import (  # noqa: F401
+from unit_translator.domain.conversion import (
     ChannelCost,
     ConversionValidationError,
     ConversionRequest,
@@ -19,7 +19,7 @@ from converter_core import (  # noqa: F401
     token_cost_yuan,
     token_cost_yuan_for_usage,
 )
-from pricing_catalog import (  # noqa: F401
+from unit_translator.infrastructure.catalog import (
     ExchangeRate,
     ExchangeRateProvider,
     PricingCatalog,

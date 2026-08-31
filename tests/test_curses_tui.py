@@ -1,12 +1,12 @@
 import tempfile
 import unittest
 import curses
-import curses_tui
+from unit_translator.adapters.tui import app as curses_tui
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from curses_tui import (
+from unit_translator.adapters.tui.app import (
     CursesTuiState,
     _draw_channels,
     _draw_main,
@@ -19,9 +19,9 @@ from curses_tui import (
     _run_channels,
     display_width,
 )
-from converter_core import TokenPriceProfile, TokenUsage
-from settings_store import load_settings_document
-from unit_converter import launch_tui
+from unit_translator.domain.conversion import TokenPriceProfile, TokenUsage
+from unit_translator.infrastructure.settings import load_settings_document
+from unit_translator.commands.main import launch_tui
 
 
 class CursesTuiStateTests(unittest.TestCase):
@@ -94,7 +94,10 @@ class CursesTuiStateTests(unittest.TestCase):
     def test_calculation_is_cached_until_inputs_or_settings_change(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = self._state(directory)
-            with patch("curses_tui.calculate_display", wraps=curses_tui.calculate_display) as calculate:
+            with patch(
+                "unit_translator.adapters.tui.app.calculate_display",
+                wraps=curses_tui.calculate_display,
+            ) as calculate:
                 state.calculate()
                 state.calculate()
                 self.assertEqual(calculate.call_count, 1)
@@ -202,7 +205,9 @@ class CursesTuiStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state = self._state(directory)
             profile = state.settings.comparison_profiles[0]
-            with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+            with patch("unit_translator.adapters.tui.app.curses.echo"), patch(
+                "unit_translator.adapters.tui.app.curses.noecho"
+            ):
                 self.assertIsNone(_edit_channel(EscapeScreen(), profile))
 
     def test_channel_edit_requires_canonical_date_and_keeps_values(self) -> None:
@@ -227,7 +232,9 @@ class CursesTuiStateTests(unittest.TestCase):
             def getstr(self, *args: object) -> bytes:
                 return next(self.values).encode()
 
-        with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+        with patch("unit_translator.adapters.tui.app.curses.echo"), patch(
+            "unit_translator.adapters.tui.app.curses.noecho"
+        ):
             profile = _edit_channel(ValuesScreen(), None)
         self.assertIsNotNone(profile)
         self.assertEqual(profile.effective_at, "2026-02-01")
@@ -237,7 +244,9 @@ class CursesTuiStateTests(unittest.TestCase):
             def getstr(self, *args: object) -> bytes:
                 raise curses.error("read failed")
 
-        with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+        with patch("unit_translator.adapters.tui.app.curses.echo"), patch(
+            "unit_translator.adapters.tui.app.curses.noecho"
+        ):
             with self.assertRaises(_PromptInputError):
                 _prompt(ErrorScreen(), 1, "名称", "default")
 
@@ -252,7 +261,9 @@ class CursesTuiStateTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             state = self._state(directory)
-            with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+            with patch("unit_translator.adapters.tui.app.curses.echo"), patch(
+                "unit_translator.adapters.tui.app.curses.noecho"
+            ):
                 _run_usage(ValuesScreen(), state, (1, 2, 3, 4))
             self.assertEqual(state.settings.usage.total_tokens, 60)
             self.assertTrue(state.is_dirty())
@@ -269,7 +280,9 @@ class CursesTuiStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state = self._state(directory)
             screen = ValuesScreen()
-            with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+            with patch("unit_translator.adapters.tui.app.curses.echo"), patch(
+                "unit_translator.adapters.tui.app.curses.noecho"
+            ):
                 _run_usage(screen, state, (1, 2, 3, 4))
             output = "\n".join(screen.lines.values())
             self.assertIn("Token 用量配比（高级）", output)
@@ -288,7 +301,9 @@ class CursesTuiStateTests(unittest.TestCase):
             "x", "1", "2", "3", provider="p", model="m", currency="EUR", unit="1K tokens",
             effective_at="2026-01-01", source="s", version="v",
         )
-        with patch("curses_tui.curses.echo"), patch("curses_tui.curses.noecho"):
+        with patch("unit_translator.adapters.tui.app.curses.echo"), patch(
+            "unit_translator.adapters.tui.app.curses.noecho"
+        ):
             updated = _edit_channel(ValuesScreen(), profile)
         self.assertEqual(updated.currency, "EUR")
         self.assertEqual(updated.unit, "1K tokens")
@@ -387,7 +402,7 @@ class CursesChannelViewTests(unittest.TestCase):
 
 class CursesTuiEntryPointTests(unittest.TestCase):
     def test_interactive_entry_uses_ncurses_runner(self) -> None:
-        with patch("curses_tui.run_curses_tui", return_value=0) as runner:
+        with patch("unit_translator.adapters.tui.app.run_curses_tui", return_value=0) as runner:
             self.assertEqual(launch_tui("settings.toml"), 0)
         runner.assert_called_once_with("settings.toml")
 

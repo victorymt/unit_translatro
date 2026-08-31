@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app_config import Settings
-from converter_core import ConversionRequest, TokenPriceProfile, format_decimal
+from unit_translator.infrastructure.config import Settings
+from unit_translator.domain.conversion import (
+    ConversionRequest,
+    TokenPriceProfile,
+    format_decimal,
+)
 from unit_translator.application import ConversionService
 
 

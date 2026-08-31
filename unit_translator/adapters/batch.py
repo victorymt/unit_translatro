@@ -8,12 +8,12 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, TextIO, TYPE_CHECKING
 
-from converter_core import DEFAULT_USAGE, ConversionResult
-from converter_io import result_to_dict
+from unit_translator.domain.conversion import DEFAULT_USAGE, ConversionResult
+from unit_translator.adapters.serialization import result_to_dict
 from unit_translator.application import ConversionService
 
 if TYPE_CHECKING:
-    from app_config import Settings
+    from unit_translator.infrastructure.config import Settings
 
 
 def iter_records(path: str | Path) -> Iterator[dict[str, Any]]:

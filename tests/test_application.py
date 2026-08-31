@@ -3,8 +3,8 @@ import json
 import unittest
 from decimal import Decimal
 
-from app_config import Settings
-from converter_core import (
+from unit_translator.infrastructure.config import Settings
+from unit_translator.domain.conversion import (
     ConversionRequest,
     ConversionValidationError,
     TokenPriceProfile,

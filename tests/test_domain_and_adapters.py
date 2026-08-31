@@ -9,19 +9,28 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from app_config import Settings, load_settings
-from batch_processing import batch_to_csv, batch_to_json, write_batch_csv, write_batch_json
-from converter_core import (
+from unit_translator.infrastructure.config import Settings, load_settings
+from unit_translator.adapters.batch import (
+    batch_to_csv,
+    batch_to_json,
+    write_batch_csv,
+    write_batch_json,
+)
+from unit_translator.domain.conversion import (
     ConversionRequest,
     ConversionValidationError,
     TokenPriceProfile,
     TokenUsage,
     calculate_conversion,
 )
-from converter_io import request_from_mapping
-from pricing_catalog import PricingCatalog, StaticExchangeRateProvider, load_pricing_catalog
-from unit_converter import main
-from web_api import create_server
+from unit_translator.adapters.serialization import request_from_mapping
+from unit_translator.infrastructure.catalog import (
+    PricingCatalog,
+    StaticExchangeRateProvider,
+    load_pricing_catalog,
+)
+from unit_translator.commands.main import main
+from unit_translator.adapters.web import create_server
 
 
 class DomainAndAdapterTests(unittest.TestCase):

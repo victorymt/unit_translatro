@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from pricing_catalog import DEFAULT_CATALOG_PATH, PricingCatalog
+from unit_translator.infrastructure.catalog import DEFAULT_CATALOG_PATH, PricingCatalog
 
 
 def build_parser() -> argparse.ArgumentParser:

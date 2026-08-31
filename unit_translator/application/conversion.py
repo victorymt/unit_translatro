@@ -11,7 +11,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from converter_core import ConversionRequest, ConversionResult, calculate_conversion
+from unit_translator.domain.conversion import (
+    ConversionRequest,
+    ConversionResult,
+    calculate_conversion,
+)
 
 from .requests import request_from_mapping
 

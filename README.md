@@ -9,7 +9,7 @@ uv sync
 uv run unit-translator
 ```
 
-也可以使用 `uv run python unit_converter.py` 直接运行源码。这是一个 ncurses 工作台，主屏包含换算和价格对比，渠道维护通过 `c` 进入：
+也可以使用 `uv run python -m unit_translator` 直接运行源码。这是一个 ncurses 工作台，主屏包含换算和价格对比，渠道维护通过 `c` 进入：
 
 - 工作台实时计算倍率、账号成本、用户自有 1 亿混合 Token 的实际支出，并在同一页突出 ChatGPT 中转与所有配置渠道的 CNY 和相对成本；完整 USD 价格可在 `c` 渠道页查看。充值比例、ChatGPT 输入/输出/缓存价和美元汇率在主屏编辑，输入/输出/缓存用量配比通过 `u` 调整。
 - 渠道管理可新建、编辑和删除名称、提供商、模型、三类单价、生效日期、来源和版本。渠道单价固定为 `USD / 1M tokens`；ChatGPT 中转价格不在渠道列表中重复维护。
@@ -236,13 +236,13 @@ Web API 默认只监听本机地址，公网部署前应放在反向代理或 Fa
 
 生产部署的 systemd、Nginx、安全边界和健康检查示例见 [`docs/deployment.md`](docs/deployment.md)。内置服务会返回基础浏览器安全头，但认证、TLS、限流和公网访问日志仍由反向代理负责。
 
-价格目录位于 `config/default_profiles.json`，每条记录包含 provider、model、三类 Token 单价、来源、生效日期和版本。Web API 会从目录读取 `/api/v1/profiles`，也可通过 `create_server(pricing_catalog_path=...)` 注入另一份目录；请求中显式提供 `comparison_profiles` 时仍可做临时比较。`as_of=YYYY-MM-DD` 查询可筛选生效日期不晚于指定日期的价格。
+内置价格目录位于 `unit_translator/resources/default_profiles.json`，每条记录包含 provider、model、三类 Token 单价、来源、生效日期和版本。Web API 会从目录读取 `/api/v1/profiles`，也可通过 `create_server(pricing_catalog_path=...)` 注入另一份目录；请求中显式提供 `comparison_profiles` 时仍可做临时比较。`as_of=YYYY-MM-DD` 查询可筛选生效日期不晚于指定日期的价格。
 
 修改目录后可用本地命令先校验再启动服务：
 
 ```bash
-uv run unit-translator-catalog config/default_profiles.json --summary
-uv run unit-translator-catalog config/default_profiles.json --json --as-of 2026-08-28
+uv run unit-translator-catalog unit_translator/resources/default_profiles.json --summary
+uv run unit-translator-catalog unit_translator/resources/default_profiles.json --json --as-of 2026-08-28
 ```
 
 命令会检查 JSON 结构、非负价格、非空版本和 `YYYY-MM-DD` 生效日期；校验失败时返回退出码 `2` 并输出具体字段错误。

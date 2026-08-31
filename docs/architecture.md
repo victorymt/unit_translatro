@@ -1,43 +1,40 @@
 # Architecture
 
-The project uses a layered, compatibility-first architecture.  Existing root
-modules remain supported so scripts and packaged entry points do not need a
-flag day migration.
+All runtime code and bundled assets live under the `unit_translator` package.
+The repository root is reserved for project metadata, documentation, and tool
+configuration.
 
 ```text
-CLI / TUI / HTTP / batch
-            |
-        application
-            |
-          domain
-            ^
-    settings / catalog / files
+unit_translator/
+├── domain/          deterministic models, validation, and calculations
+├── application/     use cases and request mapping
+├── adapters/        batch, HTTP, serialization, web, and TUI boundaries
+├── infrastructure/  file-backed settings and price catalogs
+├── commands/        executable CLI composition roots
+└── resources/       bundled catalog and browser assets
 ```
 
-## Boundaries
+## Dependency direction
 
-- `converter_core.py` is the deterministic domain: value objects, validation,
-  and conversion calculations. It does not read files or know about ncurses,
-  HTTP, or command-line flags.
-- `unit_translator.application` owns use cases and the public request schema.
-  `ConversionService` is the shared entry point for typed requests and request
-  mappings.
-- `unit_translator.adapters` holds transport presentation concerns. The HTTP
-  adapter parses framing and the ncurses adapter provides calculator view
-  models and compose fragments.
-- `app_config.py`, `pricing_catalog.py`, and `settings_store.py` provide
-  file-backed settings, price catalogs, and editable-document persistence.
-- `unit_converter.py`, `web_api.py`, `curses_tui.py`, and `batch_processing.py`
-  are composition roots. They select configuration and presentation, then
-  delegate conversion work to `ConversionService`.
+```text
+commands ─┬─> adapters ─> application ─> domain
+          └─> infrastructure ──────────> domain
+```
 
-## Compatibility rules
+- `unit_translator.domain.conversion` has no terminal, HTTP, or file-system
+  dependencies.
+- `unit_translator.application.ConversionService` is the shared use-case entry
+  point for typed requests and mappings.
+- `unit_translator.adapters` owns transport parsing, rendering, and lifecycle
+  concerns. Adapters do not duplicate conversion rules.
+- `unit_translator.infrastructure` owns catalogs, user configuration, and
+  editable settings documents.
+- `unit_translator.commands` wires these layers into the installed commands.
 
-- Keep existing CLI flags, API paths, JSON fields, error codes, and root-module
-  imports working while extracting modules.
-- Put new cross-entry-point behaviour in `unit_translator.application`; do not
-  duplicate it in CLI, TUI, batch, or HTTP handlers.
-- Keep transports responsible only for parsing, rendering, and their own
-  lifecycle concerns.
-- Add a regression test before moving a public contract, then run the full
-  unit suite after each migration step.
+## Public contracts
+
+- The stable embedding API is exported from `unit_translator`.
+- Run the application from source with `python -m unit_translator` or use the
+  installed `unit-translator` command.
+- Keep CLI flags, HTTP paths, JSON fields, and adapter error codes backward
+  compatible. Add a regression test before changing any of them.

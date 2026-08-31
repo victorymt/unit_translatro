@@ -14,7 +14,7 @@ from typing import Any, Literal
 import tomli_w
 from platformdirs import user_config_path
 
-from app_config import Settings
+from unit_translator.infrastructure.config import Settings
 
 
 ConfigFormat = Literal["json", "toml"]

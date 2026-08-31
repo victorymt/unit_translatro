@@ -5,7 +5,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from catalog_tool import main
+from unit_translator.commands.catalog import main
 
 
 class CatalogToolTests(unittest.TestCase):

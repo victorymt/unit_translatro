@@ -9,8 +9,13 @@ from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any
 
-from converter_core import ConversionRequest, ConversionResult, TokenPriceProfile, TokenUsage
-from pricing_catalog import load_pricing_catalog
+from unit_translator.domain.conversion import (
+    ConversionRequest,
+    ConversionResult,
+    TokenPriceProfile,
+    TokenUsage,
+)
+from unit_translator.infrastructure.catalog import load_pricing_catalog
 from unit_translator.application.requests import (
     chatgpt_profile_from_mapping,
     request_from_mapping as _request_from_mapping,

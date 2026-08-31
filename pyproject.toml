@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "ChatGPT relay multiplier and token cost converter"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
 authors = [{name = "unit-translator contributors"}]
 dependencies = [
   "platformdirs>=4",
@@ -16,31 +16,20 @@ dependencies = [
 ]
 
 [project.scripts]
-unit-translator = "unit_converter:main"
-unit-translator-web = "web_api:run_server"
-unit-translator-catalog = "catalog_tool:main"
-
-[tool.setuptools]
-py-modules = [
-  "unit_converter",
-  "converter_core",
-  "converter_io",
-  "batch_processing",
-  "catalog_tool",
-  "app_config",
-  "web_api",
-  "pricing_catalog",
-  "settings_store",
-  "curses_tui",
-]
+unit-translator = "unit_translator.commands.main:main"
+unit-translator-web = "unit_translator.adapters.web:run_server"
+unit-translator-catalog = "unit_translator.commands.catalog:main"
 
 [tool.setuptools.packages.find]
 include = ["unit_translator*"]
 
-[tool.setuptools.data-files]
-"config" = ["config/default_profiles.json"]
-"web" = ["web/index.html"]
-"web/assets" = ["web/assets/app.js", "web/assets/styles.css"]
+[tool.setuptools.package-data]
+unit_translator = [
+  "resources/*.json",
+  "resources/web/*.html",
+  "resources/web/assets/*.js",
+  "resources/web/assets/*.css",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

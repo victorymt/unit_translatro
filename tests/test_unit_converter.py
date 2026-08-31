@@ -5,8 +5,8 @@ from decimal import Decimal
 from io import StringIO
 from unittest.mock import patch
 
-from converter_core import TokenPriceProfile, channel_cost_comparison
-from unit_converter import (
+from unit_translator.domain.conversion import TokenPriceProfile, channel_cost_comparison
+from unit_translator.commands.main import (
     _display_width,
     fen_from_multiplier,
     fen_from_token_cost,
@@ -144,12 +144,15 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(context.exception.code, 2)
 
     def test_interactive_mode_passes_raw_config_path_to_ncurses_launcher(self) -> None:
-        with patch("unit_converter.launch_tui", return_value=0) as launcher:
+        with patch("unit_translator.commands.main.launch_tui", return_value=0) as launcher:
             self.assertEqual(main(["--config", "missing.toml"]), 0)
         launcher.assert_called_once_with("missing.toml")
 
     def test_interactive_mode_reports_ncurses_startup_errors(self) -> None:
-        with patch("unit_converter.launch_tui", side_effect=curses.error("setupterm failed")):
+        with patch(
+            "unit_translator.commands.main.launch_tui",
+            side_effect=curses.error("setupterm failed"),
+        ):
             with self.assertRaises(SystemExit) as context:
                 main([])
         self.assertEqual(context.exception.code, 2)

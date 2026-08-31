@@ -1,7 +1,7 @@
 import unittest
 
-from app_config import Settings
-from converter_core import TokenPriceProfile, TokenUsage
+from unit_translator.infrastructure.config import Settings
+from unit_translator.domain.conversion import TokenPriceProfile, TokenUsage
 from unit_translator.adapters.tui.calculator import CalculatorInputs, calculate_display
 from unit_translator.application import ConversionService
 

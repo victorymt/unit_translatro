@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from converter_core import (
+from unit_translator.domain.conversion import (
     ConversionRequest,
     ConversionValidationError,
     DEFAULT_CACHED_PRICE,

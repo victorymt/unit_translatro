@@ -9,18 +9,17 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
-import sysconfig
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from converter_core import (
+from unit_translator.domain.conversion import (
     ConversionValidationError,
 )
-from converter_io import result_to_dict
-from app_config import Settings, load_settings
-from pricing_catalog import PricingCatalog, load_pricing_catalog
+from unit_translator.adapters.serialization import result_to_dict
+from unit_translator.infrastructure.config import Settings, load_settings
+from unit_translator.infrastructure.catalog import PricingCatalog, load_pricing_catalog
 from unit_translator.adapters.http import (
     CONVERSION_PATHS,
     HttpRequestError,
@@ -43,11 +42,7 @@ SECURITY_HEADERS = {
 }
 
 def _static_root() -> Path:
-    local_root = Path(__file__).with_name("web")
-    if local_root.is_dir():
-        return local_root
-    data_root = Path(sysconfig.get_path("data") or sysconfig.get_config_var("prefix"))
-    return data_root / "web"
+    return Path(__file__).resolve().parents[1] / "resources" / "web"
 
 
 STATIC_ROOT = _static_root()
