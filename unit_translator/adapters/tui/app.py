@@ -32,7 +32,7 @@ from unit_translator.adapters.tui.calculator import (
     CalculatorInputs,
     calculate_display,
 )
-from unit_translator.adapters.tui.bc_calculator import CalculatorSession
+from unit_translator.adapters.tui.bc_calculator import CalculatorSession, HistoryEntry
 from unit_translator.application import ConversionService
 
 
@@ -56,8 +56,14 @@ FIELD_NAMES = (
     "cached_price",
 )
 
-CALCULATOR_PANEL_ROWS = 4
+CALCULATOR_BASE_ROWS = 3
+CALCULATOR_EMPTY_ROWS = 4
+CALCULATOR_HISTORY_ENTRY_ROWS = 2
 CALCULATOR_FOCUS_KEY = getattr(curses, "KEY_F6", 274)
+MAIN_PARAMETER_ROWS = (6, 7, 8)
+MAIN_RESULT_RULE_ROW = 10
+MAIN_COMPARISON_TITLE_ROW = 15
+MAIN_PANEL_FLOOR = 14
 
 
 class _PromptInputError(Exception):
@@ -182,52 +188,105 @@ def _draw_footer(screen: curses.window, page: str = "main") -> None:
     _addstr(screen, height - 1, 2, _footer_text(screen.getmaxyx()[1], page), curses.A_DIM)
 
 
-def _calculator_panel_top(screen: curses.window) -> int:
-    """Return the first row reserved for the persistent calculator panel."""
-    return screen.getmaxyx()[0] - CALCULATOR_PANEL_ROWS - 1
+def _calculator_panel_layout(
+    screen: curses.window,
+    session: CalculatorSession | None,
+    content_floor: int,
+) -> tuple[int, int, tuple[HistoryEntry, ...]]:
+    """Return the dynamic panel bounds and the history entries to render.
+
+    ``content_floor`` is the first row that the page may give to the panel.
+    Comparison/detail rows are allowed to collapse above that boundary, while
+    the parameter and result sections remain untouched.
+    """
+    height = screen.getmaxyx()[0]
+    bottom = height - 2  # Keep the page footer out of the panel.
+    if session is None:
+        return bottom + 1, 0, ()
+    available = max(0, bottom - content_floor + 1)
+    if available < CALCULATOR_BASE_ROWS:
+        return bottom + 1, 0, ()
+
+    history = tuple(session.history)
+    if history:
+        visible_count = min(
+            len(history),
+            max(0, (available - CALCULATOR_BASE_ROWS) // CALCULATOR_HISTORY_ENTRY_ROWS),
+        )
+        entries = history[-visible_count:] if visible_count else ()
+        rows = (
+            CALCULATOR_BASE_ROWS + visible_count * CALCULATOR_HISTORY_ENTRY_ROWS
+            if visible_count
+            else min(CALCULATOR_EMPTY_ROWS, available)
+        )
+    else:
+        entries = ()
+        rows = min(CALCULATOR_EMPTY_ROWS, available)
+    return bottom - rows + 1, rows, entries
+
+
+def _calculator_panel_top(
+    screen: curses.window,
+    session: CalculatorSession | None = None,
+    content_floor: int = 0,
+) -> int:
+    """Return the first row reserved for the dynamic calculator panel."""
+    top, _, _ = _calculator_panel_layout(screen, session, content_floor)
+    return top
 
 
 def _draw_calculator_panel(
     screen: curses.window,
     session: CalculatorSession | None,
     colors: tuple[int, int, int, int],
+    content_floor: int = 0,
 ) -> None:
-    """Draw the fixed four-row calculator panel above the page footer."""
+    """Draw the bordered REPL-style calculator panel above the page footer."""
     if session is None:
         return
-    height, width = screen.getmaxyx()
-    top = _calculator_panel_top(screen)
-    if top < 0 or width < 12:
+    _, width = screen.getmaxyx()
+    top, rows, entries = _calculator_panel_layout(screen, session, content_floor)
+    if rows < CALCULATOR_BASE_ROWS or width < 12:
         return
     accent, success, error_color, dim = colors
     inner = max(1, width - 4)
     title = "快速计算"
     state_text = "已聚焦" if session.focused else "F6 聚焦"
-    top_text = f"┌─ {title} · {state_text} "
+    count_text = f"历史 {len(session.history)}/{session.max_history}"
+    top_text = f"┌─ {title} · {state_text} · {count_text} "
     _addstr(screen, top, 2, top_text + "─" * max(0, inner - display_width(top_text) - 1), accent)
+
+    row = top + 1
+    if entries:
+        for entry in entries:
+            entry_attr = dim if entry.success else error_color
+            _addstr(screen, row, 2, clip_display(f"│ {entry.expression}", inner), entry_attr)
+            result_attr = success if entry.success else error_color
+            result_text = entry.display_text
+            if not entry.success:
+                result_text = f"✗ {result_text}"
+            _addstr(screen, row + 1, 2, clip_display(f"│ {result_text}", inner), result_attr)
+            row += CALCULATOR_HISTORY_ENTRY_ROWS
+    elif session.error:
+        _addstr(screen, row, 2, clip_display(f"│ ✗ {session.error}", inner), error_color)
+        row += 1
+    elif session.history and rows >= CALCULATOR_EMPTY_ROWS:
+        _addstr(screen, row, 2, "│ 历史已折叠（窗口空间不足）", dim)
+        row += 1
+    else:
+        _addstr(screen, row, 2, "│ 历史：暂无（Enter 计算后保留最近 20 条）", dim)
+        row += 1
+
     expression = session.expression or ""
     if session.focused:
-        shown, position = _edit_display(expression, session.cursor, max(1, inner - 19))
+        shown, position = _edit_display(expression, session.cursor, max(1, inner - 4))
         input_text = f"│ > {shown[:position]}|{shown[position:]}"
     else:
         input_text = f"│ > {expression or '（按 F6 输入算式）'}"
-    if session.result and not session.error:
-        input_text += f"  = {session.result}"
-    _addstr(screen, top + 1, 2, clip_display(input_text, inner), curses.A_REVERSE if session.focused else 0)
-    if session.error:
-        status = f"│ ✗ {session.error}"
-        status_attr = error_color
-    elif session.history:
-        entry = session.history[session.history_index] if session.history_index is not None else session.history[-1]
-        marker = "✓" if entry.success else "✗"
-        status = f"│ 历史 ↑↓ [{len(session.history)}/{session.max_history}] {marker} {entry.expression} = {entry.display_text}"
-        status_attr = success if entry.success else error_color
-    else:
-        status = "│ 历史：暂无（Enter 计算后保留最近 20 条）"
-        status_attr = dim
-    _addstr(screen, top + 2, 2, clip_display(status, inner), status_attr)
+    _addstr(screen, row, 2, clip_display(input_text, inner), curses.A_REVERSE if session.focused else 0)
+    row += 1
     controls = "└─ Enter 计算 · ↑↓ 历史 · F6 聚焦/释放 · Esc 取消 "
-    _addstr(screen, top + 3, 2, controls + "─" * max(0, inner - display_width(controls) - 1), dim)
+    _addstr(screen, row, 2, controls + "─" * max(0, inner - display_width(controls) - 1), dim)
 
 
 def _handle_calculator_key(session: CalculatorSession | None, key: int | str) -> bool:
@@ -579,39 +638,40 @@ def _draw_main(
         "fen": "分/刀",
         "token_cost": "元/1亿 Token",
     }[state.mode]
+    parameter_rows = MAIN_PARAMETER_ROWS
     _field(
-        screen, 6, left_col, value_label, state.value,
+        screen, parameter_rows[0], left_col, value_label, state.value,
         value_unit,
         state.active_field == 0,
         state.cursor if state.active_field == 0 else None,
         column_width,
     )
     _field(
-        screen, 6, right_col, "充值比例", state.balance_per_yuan, "刀/元",
+        screen, parameter_rows[0], right_col, "充值比例", state.balance_per_yuan, "刀/元",
         state.active_field == 1,
         state.cursor if state.active_field == 1 else None,
         column_width,
     )
     _field(
-        screen, 8, left_col, "美元汇率", state.usd_cny_rate, "元/USD",
+        screen, parameter_rows[1], left_col, "美元汇率", state.usd_cny_rate, "元/USD",
         state.active_field == 2,
         state.cursor if state.active_field == 2 else None,
         column_width,
     )
     _field(
-        screen, 8, right_col, "输入价", state.input_price, "刀/1M",
+        screen, parameter_rows[1], right_col, "输入价", state.input_price, "刀/1M",
         state.active_field == 3,
         state.cursor if state.active_field == 3 else None,
         column_width,
     )
     _field(
-        screen, 10, left_col, "输出价", state.output_price, "刀/1M",
+        screen, parameter_rows[2], left_col, "输出价", state.output_price, "刀/1M",
         state.active_field == 4,
         state.cursor if state.active_field == 4 else None,
         column_width,
     )
     _field(
-        screen, 10, right_col, "缓存价", state.cached_price, "刀/1M",
+        screen, parameter_rows[2], right_col, "缓存价", state.cached_price, "刀/1M",
         state.active_field == 5,
         state.cursor if state.active_field == 5 else None,
         column_width,
@@ -624,7 +684,7 @@ def _draw_main(
         state.calculation_error = str(exc)
     else:
         state.calculation_error = ""
-    _draw_rule(screen, 12, "结果", accent)
+    _draw_rule(screen, MAIN_RESULT_RULE_ROW, "结果", accent)
     if display is not None:
         usage = state.settings.usage
         usage_text = (
@@ -633,47 +693,25 @@ def _draw_main(
             f"{_compact_tokens(usage.cached_tokens)}"
         )
         cost_label = "1 亿实际支出" if state.mode == "token_cost" else "当前用量成本"
-        if calculator is not None and compact:
+        if compact:
             _addstr(
                 screen,
-                13,
-                2,
-                clip_display(
-                    f"倍率 {display.multiplier} · 账号成本 {display.fen_per_dollar}",
-                    width - 4,
-                ),
-                curses.A_BOLD | success,
-            )
-            _addstr(
-                screen,
-                14,
-                2,
-                clip_display(
-                    f"{cost_label} {display.token_cost_yuan} · {usage_text}",
-                    width - 4,
-                ),
-                dim,
-            )
-            comparison_title_row = None
-        elif compact:
-            _addstr(
-                screen,
-                13,
+                11,
                 2,
                 f"倍率 {display.multiplier}  · 账号成本 {display.fen_per_dollar}",
                 curses.A_BOLD | success,
             )
-            _addstr(screen, 14, 2, usage_text, dim)
+            _addstr(screen, 12, 2, usage_text, dim)
         else:
             _addstr(
                 screen,
-                13,
+                11,
                 2,
                 f"倍率 {display.multiplier}  · 账号成本 {display.fen_per_dollar}",
                 curses.A_BOLD | success,
             )
-            _addstr(screen, 14, 2, usage_text, dim)
-        cost_row = 15
+            _addstr(screen, 12, 2, usage_text, dim)
+        cost_row = 13
         _addstr(
             screen,
             cost_row,
@@ -681,24 +719,24 @@ def _draw_main(
             f"{cost_label} {display.token_cost_yuan}  · 官方成本 {display.official_cost_usd}",
             curses.A_BOLD,
         )
-        if calculator is not None and compact:
-            comparison_title_row = None
-            comparison_header_row = None
-            comparison_limit = 0
-        else:
-            comparison_title_row = 17 if compact else 16
-            comparison_header_row = comparison_title_row + 1
-            comparison_limit = 0 if compact else max(0, height - comparison_header_row - 2)
-            if calculator is not None:
-                panel_top = _calculator_panel_top(screen)
-                comparison_limit = max(
-                    0,
-                    min(comparison_limit, panel_top - comparison_header_row - 1),
-                )
+        comparison_title_row = MAIN_COMPARISON_TITLE_ROW
+        comparison_header_row = comparison_title_row + 1
+        comparison_limit = 0 if compact else max(0, height - comparison_header_row - 2)
+        if calculator is not None:
+            panel_top = _calculator_panel_top(screen, calculator, MAIN_PANEL_FLOOR)
+            comparison_limit = max(
+                0,
+                min(comparison_limit, panel_top - comparison_header_row - 1),
+            )
+            if panel_top <= comparison_title_row:
+                comparison_title_row = None
+                comparison_header_row = None
+            elif panel_top <= comparison_header_row:
+                comparison_header_row = None
+                comparison_limit = 0
+                comparison_title_row = None
         comparison_total = len(display.comparison)
-        if calculator is not None and compact:
-            comparison_title = ""
-        elif compact:
+        if compact:
             comparison_title = f"渠道对比（{comparison_total} 个，按 c 查看全部）"
         else:
             comparison_title = "渠道对比"
@@ -733,11 +771,12 @@ def _draw_main(
                 f"{name}  {_right_display(row.yuan, 14)}  {_right_display(row.relative_cost, 12)}",
             )
     visible_error = state.error or state.calculation_error
+    feedback_row = 14 if display is not None else 11
     if visible_error:
-        _addstr(screen, 11, 2, clip_display(visible_error, width - 4), error_color)
+        _addstr(screen, feedback_row, 2, clip_display(visible_error, width - 4), error_color)
     elif state.message:
-        _addstr(screen, 11, 2, clip_display(state.message, width - 4), success)
-    _draw_calculator_panel(screen, calculator, colors)
+        _addstr(screen, feedback_row, 2, clip_display(state.message, width - 4), success)
+    _draw_calculator_panel(screen, calculator, colors, MAIN_PANEL_FLOOR)
     _draw_footer(screen)
     screen.refresh()
 
@@ -997,8 +1036,14 @@ def _edit_channel_interactive(
         for row, (name, label, _) in enumerate(fields, start=3):
             _draw_draft_field(screen, row, label, editor.values[name], editor.active == row - 3, editor.cursor)
         if error:
-            _addstr(screen, max(3, _calculator_panel_top(screen) - 1), 2, clip_display(error, width - 4), error_color)
-        _draw_calculator_panel(screen, calculator, (accent, curses.A_BOLD, error_color, dim))
+            _addstr(
+                screen,
+                max(3, _calculator_panel_top(screen, calculator, 13) - 1),
+                2,
+                clip_display(error, width - 4),
+                error_color,
+            )
+        _draw_calculator_panel(screen, calculator, (accent, curses.A_BOLD, error_color, dim), 13)
         _draw_footer(screen, "channels")
         screen.refresh()
         key = _read_editor_key(screen)
@@ -1056,7 +1101,7 @@ def _run_usage_interactive(
             _draw_draft_field(screen, row, label, editor.values[name], editor.active == row - 4, editor.cursor)
         if error:
             _addstr(screen, 8, 2, clip_display(error, screen.getmaxyx()[1] - 4), error_color)
-        _draw_calculator_panel(screen, calculator, colors)
+        _draw_calculator_panel(screen, calculator, colors, 9)
         _draw_footer(screen, "usage")
         screen.refresh()
         key = _read_editor_key(screen)
@@ -1149,6 +1194,7 @@ def _draw_channels(
     _addstr(screen, 1, 2, clip_display("↑/↓ 或 j/k 选择  n 新建  e 编辑  d 删除  Esc 返回", width - 4), dim)
     _draw_rule(screen, 2, "价格目录 · USD / 1M tokens", dim)
     profiles = state.settings.comparison_profiles
+    panel_top = _calculator_panel_top(screen, calculator, MAIN_PANEL_FLOOR) if calculator is not None else height - 5
     if not profiles:
         _addstr(screen, 4, 2, "暂无渠道", dim)
     else:
@@ -1166,7 +1212,7 @@ def _draw_channels(
             f"{pad_display('缓存价', price_width)}"
         )
         _addstr(screen, 3, 2, clip_display(header, width - 4), dim)
-        detail_row = max(5, (_calculator_panel_top(screen) - 4) if calculator is not None else height - 5)
+        detail_row = max(5, panel_top - 4)
         visible = max(1, detail_row - 4)
         start = min(max(0, selected - visible + 1), max(0, len(profiles) - visible))
         for row, index in enumerate(range(start, min(len(profiles), start + visible)), start=4):
@@ -1203,12 +1249,12 @@ def _draw_channels(
             clip_display(f"来源 {profile.source or '--'}", width - 4),
             dim,
         )
-    message_row = (_calculator_panel_top(screen) - 1) if calculator is not None else height - 2
+    message_row = (panel_top - 1) if calculator is not None else height - 2
     if state.error:
         _addstr(screen, message_row, 2, clip_display(state.error, width - 4), error_color)
     elif state.message:
         _addstr(screen, message_row, 2, clip_display(state.message, width - 4), accent)
-    _draw_calculator_panel(screen, calculator, colors)
+    _draw_calculator_panel(screen, calculator, colors, MAIN_PANEL_FLOOR)
     _draw_footer(screen, "channels")
     screen.refresh()
 

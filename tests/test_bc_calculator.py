@@ -47,11 +47,15 @@ class CalculatorSessionTests(unittest.TestCase):
         entry = session.submit()
         self.assertIsInstance(entry, HistoryEntry)
         self.assertEqual(session.result, "3")
+        self.assertEqual(session.expression, "")
+        self.assertEqual(session.cursor, 0)
+        self.assertTrue(session.focused)
         session.expression = "bad"
         session.cursor = 3
         failed = session.submit()
         self.assertIsNotNone(failed)
         self.assertFalse(failed.success)
+        self.assertEqual(session.expression, "bad")
         self.assertEqual(len(session.history), 2)
         self.assertEqual(transport.values, ["1+2", "bad"])
 

@@ -42,8 +42,10 @@ commands ─┬─> adapters ─> application ─> domain
 - Keep CLI flags, HTTP paths, JSON fields, and adapter error codes backward
   compatible. Add a regression test before changing any of them.
 
-The ncurses workbench keeps a four-row calculator panel above the page footer.
-The panel is session-only and does not participate in settings save/restore or
-dirty tracking. `bc` is an optional system executable; unavailable-process and
-timeout errors are rendered in the panel rather than preventing the main TUI
-from starting.
+The ncurses workbench keeps a dynamic, bordered calculator panel above the page
+footer. The panel renders recent history as two-line REPL entries immediately
+above the input; it consumes comparison/detail rows before touching the main
+parameters or results. The panel is session-only and does not participate in
+settings save/restore or dirty tracking. `bc` is an optional system executable;
+unavailable-process and timeout errors are rendered in the panel rather than
+preventing the main TUI from starting.

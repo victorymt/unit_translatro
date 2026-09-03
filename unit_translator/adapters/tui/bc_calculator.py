@@ -431,6 +431,10 @@ class CalculatorSession:
             entry = HistoryEntry(expression=expression, stdout=stdout, success=True)
             self.result = entry.display_text
             self.error = ""
+            # Keep focus for a REPL-like flow and start the next expression
+            # with an empty input line; the result now lives in history.
+            self.expression = ""
+            self.cursor = 0
         self.history.append(entry)
         self.history_index = None
         self._history_draft = ""

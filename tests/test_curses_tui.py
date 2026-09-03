@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 from unit_translator.adapters.tui.app import (
     CursesTuiState,
+    _calculator_panel_top,
     _draw_channels,
+    _draw_calculator_panel,
     _draw_main,
     _edit_channel,
     _footer_text,
@@ -180,18 +182,30 @@ class CursesTuiStateTests(unittest.TestCase):
             state = self._state(directory)
             screen = _RecordingScreen(height=24, width=80)
             _draw_main(screen, state, (1, 2, 3, 4))
-            header = screen.lines[17]
+            header = screen.lines[16]
             self.assertIn("CNY", header)
             self.assertIn("相对成本", header)
             self.assertNotIn("USD", header)
             self.assertIn("倍", screen.lines[6])
             self.assertIn("刀/元", screen.lines[6])
-            self.assertIn("元/USD", screen.lines[8])
+            self.assertIn("元/USD", screen.lines[7])
             self.assertIn("编辑 Tab/方向键", screen.lines[23])
 
     def test_grouped_footer_fits_full_and_compact_widths(self) -> None:
         for width in (72, 80, 100):
             self.assertLessEqual(display_width(_footer_text(width)), width - 4)
+
+    def test_main_parameters_are_rendered_without_blank_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            screen = _RecordingScreen(height=24, width=100)
+            _draw_main(screen, state, (1, 2, 3, 4))
+            self.assertIn("换算值", screen.lines[6])
+            self.assertIn("充值比例", screen.lines[6])
+            self.assertIn("美元汇率", screen.lines[7])
+            self.assertIn("输入价", screen.lines[7])
+            self.assertIn("输出价", screen.lines[8])
+            self.assertIn("缓存价", screen.lines[8])
 
     def test_calculator_panel_is_visible_without_dirtying_settings(self) -> None:
         class FakeTransport:
@@ -220,6 +234,41 @@ class CursesTuiStateTests(unittest.TestCase):
             self.assertIn("当前用量成本", output)
             self.assertFalse(state.is_dirty())
             session.close()
+
+    def test_calculator_history_is_stacked_above_input_and_clipped_by_height(self) -> None:
+        class FakeTransport:
+            def start(self) -> None:
+                return
+
+            def evaluate(self, expression: str) -> str:
+                return {"34*32": "1088", "23*5": "115"}[expression]
+
+            def close(self) -> None:
+                return
+
+        session = CalculatorSession(BcEvaluator(transport=FakeTransport()))
+        session.start()
+        session.focus()
+        for expression in ("34*32", "23*5"):
+            session.expression = expression
+            session.cursor = len(expression)
+            session.submit()
+
+        full = _RecordingScreen(height=24, width=80)
+        _draw_calculator_panel(full, session, (1, 2, 3, 4), 14)
+        top = _calculator_panel_top(full, session, 14)
+        self.assertIn("34*32", full.lines[top + 1])
+        self.assertIn("1088", full.lines[top + 2])
+        self.assertIn("23*5", full.lines[top + 3])
+        self.assertIn("115", full.lines[top + 4])
+        self.assertIn("> |", full.lines[top + 5])
+
+        compact = _RecordingScreen(height=20, width=72)
+        _draw_calculator_panel(compact, session, (1, 2, 3, 4), 14)
+        compact_output = "\n".join(compact.lines.values())
+        self.assertNotIn("34*32", compact_output)
+        self.assertIn("23*5", compact_output)
+        session.close()
 
     def test_f6_focus_and_calculator_key_dispatch(self) -> None:
         class FakeTransport:
