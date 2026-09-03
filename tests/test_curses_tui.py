@@ -18,7 +18,10 @@ from unit_translator.adapters.tui.app import (
     _run_usage,
     _run_channels,
     display_width,
+    _handle_calculator_key,
+    _run_usage_interactive,
 )
+from unit_translator.adapters.tui.bc_calculator import BcEvaluator, CalculatorSession
 from unit_translator.domain.conversion import TokenPriceProfile, TokenUsage
 from unit_translator.infrastructure.settings import load_settings_document
 from unit_translator.commands.main import launch_tui
@@ -189,6 +192,91 @@ class CursesTuiStateTests(unittest.TestCase):
     def test_grouped_footer_fits_full_and_compact_widths(self) -> None:
         for width in (72, 80, 100):
             self.assertLessEqual(display_width(_footer_text(width)), width - 4)
+
+    def test_calculator_panel_is_visible_without_dirtying_settings(self) -> None:
+        class FakeTransport:
+            def start(self) -> None:
+                return
+
+            def evaluate(self, expression: str) -> str:
+                return "3"
+
+            def close(self) -> None:
+                return
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            session = CalculatorSession(BcEvaluator(transport=FakeTransport()))
+            session.start()
+            session.focus()
+            session.insert("1+2")
+            session.submit()
+            screen = _RecordingScreen(height=20, width=72)
+            _draw_main(screen, state, (1, 2, 3, 4), session)
+            output = "\n".join(screen.lines.values())
+            self.assertIn("快速计算", output)
+            self.assertIn("1+2", output)
+            self.assertIn("3", output)
+            self.assertIn("当前用量成本", output)
+            self.assertFalse(state.is_dirty())
+            session.close()
+
+    def test_f6_focus_and_calculator_key_dispatch(self) -> None:
+        class FakeTransport:
+            def start(self) -> None:
+                return
+
+            def evaluate(self, expression: str) -> str:
+                return "4"
+
+            def close(self) -> None:
+                return
+
+        session = CalculatorSession(BcEvaluator(transport=FakeTransport()))
+        self.assertTrue(_handle_calculator_key(session, curses_tui.CALCULATOR_FOCUS_KEY))
+        self.assertTrue(session.focused)
+        for key in map(ord, "2+2"):
+            self.assertTrue(_handle_calculator_key(session, key))
+        _handle_calculator_key(session, 10)
+        self.assertEqual(session.result, "4")
+        _handle_calculator_key(session, curses_tui.CALCULATOR_FOCUS_KEY)
+        self.assertFalse(session.focused)
+        session.close()
+
+    def test_usage_form_can_switch_to_calculator_and_commit(self) -> None:
+        class FakeTransport:
+            def start(self) -> None:
+                return
+
+            def evaluate(self, expression: str) -> str:
+                return "2"
+
+            def close(self) -> None:
+                return
+
+        class KeyScreen(_RecordingScreen):
+            def __init__(self) -> None:
+                super().__init__(height=20, width=72)
+                self.keys = [
+                    curses_tui.CALCULATOR_FOCUS_KEY,
+                    ord("1"),
+                    curses_tui.CALCULATOR_FOCUS_KEY,
+                    10,
+                    10,
+                    10,
+                ]
+
+            def getch(self) -> int:
+                return self.keys.pop(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            session = CalculatorSession(BcEvaluator(transport=FakeTransport()))
+            _run_usage_interactive(KeyScreen(), state, (1, 2, 3, 4), session)
+            self.assertFalse(state.is_dirty())
+            self.assertEqual(session.expression, "1")
+            self.assertFalse(session.focused)
+            session.close()
 
     def test_usage_window_shows_size_warning(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

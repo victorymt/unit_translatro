@@ -27,6 +27,9 @@ commands ─┬─> adapters ─> application ─> domain
   point for typed requests and mappings.
 - `unit_translator.adapters` owns transport parsing, rendering, and lifecycle
   concerns. Adapters do not duplicate conversion rules.
+- `unit_translator.adapters.tui.bc_calculator` owns the optional session-level
+  `bc -l` PTY calculator, its bounded history, and process lifecycle. It is
+  intentionally separate from domain conversion and configuration state.
 - `unit_translator.infrastructure` owns catalogs, user configuration, and
   editable settings documents.
 - `unit_translator.commands` wires these layers into the installed commands.
@@ -38,3 +41,9 @@ commands ─┬─> adapters ─> application ─> domain
   installed `unit-translator` command.
 - Keep CLI flags, HTTP paths, JSON fields, and adapter error codes backward
   compatible. Add a regression test before changing any of them.
+
+The ncurses workbench keeps a four-row calculator panel above the page footer.
+The panel is session-only and does not participate in settings save/restore or
+dirty tracking. `bc` is an optional system executable; unavailable-process and
+timeout errors are rendered in the panel rather than preventing the main TUI
+from starting.
