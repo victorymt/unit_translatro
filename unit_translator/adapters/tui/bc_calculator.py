@@ -309,6 +309,7 @@ class CalculatorSession:
     error: str = ""
     history: deque[HistoryEntry] = field(default_factory=deque)
     history_index: int | None = None
+    collapsed: bool = False
     _history_draft: str = field(default="", init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -328,6 +329,7 @@ class CalculatorSession:
         self.evaluator.close()
 
     def focus(self) -> str:
+        self.collapsed = False
         self.focused = True
         return "focus"
 
@@ -338,6 +340,13 @@ class CalculatorSession:
 
     def toggle_focus(self) -> str:
         return self.blur() if self.focused else self.focus()
+
+    def toggle_collapsed(self) -> str:
+        """Toggle the panel while keeping a focused editor out of the way."""
+        if self.focused:
+            self.blur()
+        self.collapsed = not self.collapsed
+        return "expand" if not self.collapsed else "collapse"
 
     def insert(self, text: str) -> None:
         if any(ord(char) < 32 or ord(char) > 126 for char in text):

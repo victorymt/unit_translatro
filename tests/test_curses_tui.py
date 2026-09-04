@@ -251,6 +251,22 @@ class CursesTuiStateTests(unittest.TestCase):
             self.assertFalse(state.is_dirty())
             session.close()
 
+    def test_calculator_panel_can_be_collapsed_without_dirtying_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            session = CalculatorSession()
+            session.toggle_collapsed()
+            screen = _RecordingScreen(height=24, width=80)
+            _draw_calculator_panel(screen, session, (1, 2, 3, 4), 14)
+            output = "\n".join(screen.lines.values())
+            self.assertIn("快速计算 · 已折叠 · F7 展开", output)
+            self.assertNotIn("历史：暂无", output)
+            self.assertFalse(state.is_dirty())
+            self.assertFalse(session.focused)
+            _handle_calculator_key(session, curses_tui.CALCULATOR_FOCUS_KEY)
+            self.assertFalse(session.collapsed)
+            self.assertTrue(session.focused)
+
     def test_calculator_history_is_stacked_above_input_and_clipped_by_height(self) -> None:
         class FakeTransport:
             def start(self) -> None:
@@ -542,6 +558,70 @@ class CursesChannelViewTests(unittest.TestCase):
             output = "\n".join(screen.lines.values())
             self.assertIn("> DeepSeek V4 Pro", output)
             self.assertIn("选中渠道详情 · 4/4", output)
+
+    def test_channel_copy_creates_unique_profile_without_mutating_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            profiles = state.settings.comparison_profiles
+            selected = curses_tui._add_channel(
+                _RecordingScreen(), state, profiles, 0, copying=True
+            )
+            copied = state.settings.comparison_profiles[selected]
+            self.assertEqual(copied.name, "DeepSeek V4 Flash 谷 副本")
+            self.assertEqual(copied.provider, profiles[0].provider)
+            self.assertEqual(copied.model, profiles[0].model)
+            self.assertEqual(profiles[0].name, "DeepSeek V4 Flash 谷")
+
+            profiles = state.settings.comparison_profiles
+            selected = curses_tui._add_channel(
+                _RecordingScreen(), state, profiles, 0, copying=True
+            )
+            self.assertEqual(
+                state.settings.comparison_profiles[selected].name,
+                "DeepSeek V4 Flash 谷 副本 2",
+            )
+
+    def test_channel_filter_shows_matching_profiles_and_count(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            screen = _RecordingScreen(height=24, width=100)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4), filter_text="Flash")
+            output = "\n".join(screen.lines.values())
+            self.assertIn("筛选“Flash”", output)
+            self.assertIn("2/4 个可编辑渠道", output)
+            self.assertGreaterEqual(output.count("DeepSeek V4 Flash"), 2)
+            self.assertNotIn("DeepSeek V4 Pro", output)
+
+    def test_channel_filter_shortcut_accepts_query_and_can_clear(self) -> None:
+        class FilterScreen(_RecordingScreen):
+            def __init__(self) -> None:
+                super().__init__(height=24, width=100)
+                self.keys = [ord("/"), ord("/"), ord("q")]
+                self.values = iter([b"Pro", b""])
+
+            def getch(self) -> int:
+                return self.keys.pop(0)
+
+            def getstr(self, *args: object) -> bytes:
+                return next(self.values)
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            screen = FilterScreen()
+            with patch("unit_translator.adapters.tui.app.curses.echo"), patch(
+                "unit_translator.adapters.tui.app.curses.noecho"
+            ):
+                _run_channels(screen, state, (1, 2, 3, 4))
+            output = "\n".join(screen.lines.values())
+            self.assertNotIn("筛选“Pro”", output)
+            self.assertIn("4 个可编辑渠道", output)
+            self.assertIn("DeepSeek V4 Flash", output)
 
     def test_wide_channel_table_includes_baseline_and_cost_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

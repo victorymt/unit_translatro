@@ -92,6 +92,15 @@ class CalculatorSessionTests(unittest.TestCase):
         self.assertEqual(session.handle_key(getattr(curses, "KEY_F6", 274)), "blur")
         self.assertFalse(session.focused)
 
+    def test_collapsing_panel_blurs_and_focus_expands(self) -> None:
+        session, _ = self._session()
+        self.assertEqual(session.toggle_collapsed(), "collapse")
+        self.assertTrue(session.collapsed)
+        self.assertFalse(session.focused)
+        self.assertEqual(session.toggle_focus(), "focus")
+        self.assertFalse(session.collapsed)
+        self.assertTrue(session.focused)
+
     def test_close_closes_injected_transport(self) -> None:
         session, transport = self._session()
         session.close()

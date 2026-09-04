@@ -61,6 +61,7 @@ CALCULATOR_BASE_ROWS = 3
 CALCULATOR_EMPTY_ROWS = 4
 CALCULATOR_HISTORY_ENTRY_ROWS = 2
 CALCULATOR_FOCUS_KEY = getattr(curses, "KEY_F6", 274)
+CALCULATOR_TOGGLE_KEY = getattr(curses, "KEY_F7", 275)
 HELP_KEY = getattr(curses, "KEY_F1", 265)
 MAIN_PARAMETER_ROWS = (6, 7, 8)
 MAIN_RESULT_RULE_ROW = 10
@@ -180,16 +181,17 @@ def _footer_text(
     elif page == "channels":
         candidates = (
             "选择 ↑/↓ j/k",
-            "操作 n 新建 e 编辑 d 删除",
+            "操作 n 新建 N 复制 e 编辑 d 删除",
             "文件 s 保存 r 还原",
+            "筛选 /",
             help_hint,
             "返回 Esc/q",
         )
         variants = (
             tuple(range(len(candidates))),
-            (0, 1, 3, 4),
-            (0, 3, 4),
-            (3, 4),
+            (0, 1, 3, 4, 5),
+            (0, 3, 4, 5),
+            (4, 5),
         )
     elif page == "usage":
         candidates = ("编辑 Enter", help_hint, "返回 Esc")
@@ -281,19 +283,20 @@ def _show_help(
             "Tab/Enter/↓ 下一字段 · ↑/Shift-Tab 上一字段",
             "m 切换模式 · u 打开用量配比 · c 打开渠道管理",
             "s 保存 · r 还原未保存修改 · q/Esc 退出",
-            "F6 聚焦快速计算器；聚焦时先按 F6 释放焦点",
+            "F6 聚焦快速计算器 · F7 折叠面板；聚焦时先按 F6 释放焦点",
         ),
         "channels": (
             "↑/↓ 或 j/k 选择 · Home/End 跳到首尾",
-            "n 新建 · e 编辑 · d 删除 · s 保存 · r 还原",
+            "n 新建 · N 复制 · e 编辑 · d 删除 · s 保存 · r 还原",
+            "/ 输入名称、提供商或模型筛选；再次按 / 可清除",
             "ChatGPT 中转基准为只读，不参与编辑选择",
-            "F6 聚焦快速计算器；聚焦时 Esc 只释放焦点",
+            "F6 聚焦 · F7 折叠快速计算器；聚焦时 Esc 只释放焦点",
             "q/Esc 返回主屏",
         ),
         "usage": (
             "Tab/Enter/↓ 下一字段 · ↑/Shift-Tab 上一字段",
             "Enter 在最后一项提交；Esc 放弃本次草稿",
-            "F6 聚焦快速计算器；聚焦时先按 F6 释放焦点",
+            "F6 聚焦快速计算器 · F7 折叠面板；聚焦时先按 F6 释放焦点",
         ),
     }.get(page, ("F1/? 返回帮助",))
     screen.erase()
@@ -326,6 +329,8 @@ def _calculator_panel_layout(
     bottom = height - 2  # Keep the page footer out of the panel.
     if session is None:
         return bottom + 1, 0, ()
+    if session.collapsed:
+        return bottom, 1, ()
     available = max(0, bottom - content_floor + 1)
     if available < CALCULATOR_BASE_ROWS:
         return bottom + 1, 0, ()
@@ -369,10 +374,14 @@ def _draw_calculator_panel(
         return
     _, width = screen.getmaxyx()
     top, rows, entries = _calculator_panel_layout(screen, session, content_floor)
-    if rows < CALCULATOR_BASE_ROWS or width < 12:
-        return
     accent, success, error_color, dim = colors
     inner = max(1, width - 4)
+    if session.collapsed:
+        top_text = "┌─ 快速计算 · 已折叠 · F7 展开 · F6 聚焦 "
+        _addstr(screen, top, 2, top_text + "─" * max(0, inner - display_width(top_text) - 1), accent)
+        return
+    if rows < CALCULATOR_BASE_ROWS or width < 12:
+        return
     title = "快速计算"
     state_text = "已聚焦" if session.focused else "F6 聚焦"
     count_text = f"历史 {len(session.history)}/{session.max_history}"
@@ -408,7 +417,7 @@ def _draw_calculator_panel(
         input_text = f"│ > {expression or '（按 F6 输入算式）'}"
     _addstr(screen, row, 2, clip_display(input_text, inner), curses.A_REVERSE if session.focused else 0)
     row += 1
-    controls = "└─ Enter 计算 · ↑↓ 历史 · F6 聚焦/释放 · Esc 取消 "
+    controls = "└─ Enter 计算 · ↑↓ 历史 · F6 聚焦/释放 · F7 折叠 · Esc 取消 "
     _addstr(screen, row, 2, controls + "─" * max(0, inner - display_width(controls) - 1), dim)
 
 
@@ -422,6 +431,9 @@ def _handle_calculator_key(session: CalculatorSession | None, key: int | str) ->
         key = ord(key)
     if key == CALCULATOR_FOCUS_KEY:
         session.toggle_focus()
+        return True
+    if key == CALCULATOR_TOGGLE_KEY:
+        session.toggle_collapsed()
         return True
     if session.focused:
         session.handle_key(key)
@@ -952,7 +964,14 @@ def _confirm(screen: curses.window, prompt: str) -> bool:
     return key in (ord("y"), ord("Y"))
 
 
-def _prompt(screen: curses.window, row: int, label: str, default: str = "") -> str | None:
+def _prompt(
+    screen: curses.window,
+    row: int,
+    label: str,
+    default: str = "",
+    *,
+    allow_empty: bool = False,
+) -> str | None:
     """Read one bounded line while keeping curses rendering predictable."""
     height, width = screen.getmaxyx()
     if row >= height or width < 8:
@@ -980,7 +999,7 @@ def _prompt(screen: curses.window, row: int, label: str, default: str = "") -> s
     if b"\x1b" in raw:
         return None
     value = raw.decode("utf-8", errors="replace").strip()
-    return value or default
+    return value if allow_empty else value or default
 
 
 def _prompt_channel_values(
@@ -1163,6 +1182,9 @@ def _edit_channel_interactive(
     state: CursesTuiState,
     profile: TokenPriceProfile | None,
     calculator: CalculatorSession,
+    *,
+    copying: bool = False,
+    copy_name: str | None = None,
 ) -> TokenPriceProfile | None:
     fields = (
         ("name", "名称", False),
@@ -1176,7 +1198,7 @@ def _edit_channel_interactive(
         ("version", "版本", False),
     )
     values = {
-        "name": profile.name if profile else "",
+        "name": copy_name if copying and copy_name else profile.name if profile else "",
         "provider": profile.provider if profile else "custom",
         "model": profile.model if profile else "",
         "input_price": str(profile.input_price) if profile else "",
@@ -1193,7 +1215,8 @@ def _edit_channel_interactive(
         screen.erase()
         _, width = screen.getmaxyx()
         accent, _, error_color, dim = panel_colors
-        _addstr(screen, 0, 2, "编辑渠道" if profile else "新建渠道", curses.A_BOLD | accent)
+        title = "复制渠道" if copying else "编辑渠道" if profile else "新建渠道"
+        _addstr(screen, 0, 2, title, curses.A_BOLD | accent)
         _addstr(screen, 0, max(2, width - display_width("编辑中") - 2), "编辑中", dim)
         _addstr(screen, 1, 2, "Enter 下一项/最后一项提交 · Esc 取消 · F6 计算器", dim)
         _draw_rule(screen, 2, "渠道字段", dim)
@@ -1374,6 +1397,32 @@ def _current_chatgpt_profile(state: CursesTuiState) -> TokenPriceProfile:
         return profile
 
 
+def _channel_indices(profiles: tuple[TokenPriceProfile, ...], query: str) -> tuple[int, ...]:
+    """Return profile indexes matching a case-insensitive name/provider query."""
+    normalized = query.strip().casefold()
+    if not normalized:
+        return tuple(range(len(profiles)))
+    return tuple(
+        index
+        for index, profile in enumerate(profiles)
+        if normalized
+        in " ".join((profile.name, profile.provider, profile.model or "")).casefold()
+    )
+
+
+def _visible_channel_selection(
+    profiles: tuple[TokenPriceProfile, ...],
+    query: str,
+    actual_index: int,
+    fallback: int = 0,
+) -> int:
+    """Map a full-profile index back to the current filtered list."""
+    visible = _channel_indices(profiles, query)
+    if actual_index in visible:
+        return visible.index(actual_index)
+    return min(fallback, max(0, len(visible) - 1))
+
+
 def _channel_display_rows(
     state: CursesTuiState,
     display: CalculationDisplay | None,
@@ -1454,6 +1503,8 @@ def _draw_channels(
     selected: int,
     colors: tuple[int, int, int, int],
     calculator: CalculatorSession | None = None,
+    *,
+    filter_text: str = "",
 ) -> None:
     screen.erase()
     height, width = screen.getmaxyx()
@@ -1467,16 +1518,25 @@ def _draw_channels(
         1,
         2,
         clip_display(
-            "↑↓/j/k 选择 · n 新建 · e 编辑 · d 删除 · Esc/q 返回 · F1/? 帮助",
+            "↑↓/j/k 选择 · n 新建 · N 复制 · e 编辑 · d 删除 · Esc/q 返回 · F1/? 帮助",
             width - 4,
         ),
         dim,
     )
-    profiles = state.settings.comparison_profiles
+    all_profiles = state.settings.comparison_profiles
+    visible_indices = _channel_indices(all_profiles, filter_text)
+    profiles = tuple(all_profiles[index] for index in visible_indices)
+    selected = min(selected, max(0, len(profiles) - 1))
+    filter_label = f"筛选“{filter_text}” · " if filter_text else ""
+    profile_count = (
+        f"{len(profiles)}/{len(all_profiles)} 个可编辑渠道"
+        if filter_text
+        else f"{len(all_profiles)} 个可编辑渠道"
+    )
     _draw_rule(
         screen,
         2,
-        f"价格目录 · USD / 1M tokens · 主屏模式/用量/汇率 · {len(profiles)} 个可编辑渠道",
+        f"价格目录 · USD / 1M tokens · 主屏模式/用量/汇率 · {filter_label}{profile_count}",
         dim,
     )
     panel_top = _calculator_panel_top(screen, calculator, MAIN_PANEL_FLOOR) if calculator is not None else height - 5
@@ -1489,7 +1549,8 @@ def _draw_channels(
     else:
         state.calculation_error = ""
 
-    rows = _channel_display_rows(state, display)
+    all_rows = _channel_display_rows(state, display)
+    rows = (all_rows[0], *(all_rows[index + 1] for index in visible_indices))
     full_cost = width >= CHANNEL_FULL_COST_MIN_WIDTH
     compact = _compact_screen(width, height)
     if full_cost:
@@ -1582,7 +1643,12 @@ def _draw_channels(
             curses.A_REVERSE if index == selected else 0,
         )
     if not profiles and table_capacity > 1:
-        _addstr(screen, table_start + 1, 2, "暂无可管理渠道，按 n 新建", dim)
+        empty_text = (
+            "无匹配渠道，按 / 修改筛选"
+            if filter_text and all_profiles
+            else "暂无可管理渠道，按 n 新建"
+        )
+        _addstr(screen, table_start + 1, 2, empty_text, dim)
 
     selected_row = rows[selected + 1] if profiles else baseline
     detail_title = "ChatGPT 中转基准详情"
@@ -1636,8 +1702,32 @@ def _add_channel(
     profiles: tuple[TokenPriceProfile, ...],
     selected: int,
     calculator: CalculatorSession | None = None,
+    *,
+    copying: bool = False,
 ) -> int:
-    profile = _edit_channel_interactive(screen, state, None, calculator) if calculator is not None else _edit_channel(screen, None)
+    template = profiles[selected] if copying and profiles else None
+    copy_name = None
+    if template is not None:
+        names = {profile.name for profile in profiles}
+        base_name = f"{template.name} 副本"
+        copy_name = base_name
+        suffix = 2
+        while copy_name in names:
+            copy_name = f"{base_name} {suffix}"
+            suffix += 1
+    if calculator is not None:
+        profile = _edit_channel_interactive(
+            screen,
+            state,
+            template,
+            calculator,
+            copying=template is not None,
+            copy_name=copy_name,
+        )
+    elif template is not None:
+        profile = replace(template, name=copy_name)
+    else:
+        profile = _edit_channel(screen, None)
     if profile is None:
         return selected
     state.settings = replace(state.settings, comparison_profiles=(*profiles, profile))
@@ -1774,10 +1864,12 @@ def _run_channels(
     calculator: CalculatorSession | None = None,
 ) -> None:
     selected = 0
+    filter_text = ""
     while True:
-        profiles = state.settings.comparison_profiles
-        selected = min(selected, max(0, len(profiles) - 1))
-        _draw_channels(screen, state, selected, colors, calculator)
+        all_profiles = state.settings.comparison_profiles
+        visible_indices = _channel_indices(all_profiles, filter_text)
+        selected = min(selected, max(0, len(visible_indices) - 1))
+        _draw_channels(screen, state, selected, colors, calculator, filter_text=filter_text)
         key = screen.getch()
         if _is_help_key(key, allow_question=not bool(calculator and calculator.focused)):
             _show_help(screen, "channels", colors, calculator)
@@ -1788,20 +1880,61 @@ def _run_channels(
             if state.is_dirty() and not _confirm(screen, "存在未保存修改，返回吗"):
                 continue
             return
-        if key in (curses.KEY_UP, ord("k")) and profiles:
+        if key == ord("/"):
+            prompt_row = max(
+                0,
+                _calculator_panel_top(screen, calculator, MAIN_PANEL_FLOOR) - 1,
+            )
+            try:
+                value = _prompt(
+                    screen,
+                    prompt_row,
+                    "筛选渠道",
+                    filter_text,
+                    allow_empty=True,
+                )
+            except _PromptInputError as exc:
+                state.error, state.message = str(exc), ""
+                continue
+            if value is not None:
+                filter_text = value
+                selected = 0
+                state.error = state.message = ""
+            continue
+        if key in (curses.KEY_UP, ord("k")) and visible_indices:
             selected = max(0, selected - 1)
-        elif key in (curses.KEY_DOWN, ord("j")) and profiles:
-            selected = min(len(profiles) - 1, selected + 1)
-        elif key == curses.KEY_HOME and profiles:
+        elif key in (curses.KEY_DOWN, ord("j")) and visible_indices:
+            selected = min(len(visible_indices) - 1, selected + 1)
+        elif key == curses.KEY_HOME and visible_indices:
             selected = 0
-        elif key == curses.KEY_END and profiles:
-            selected = len(profiles) - 1
-        elif key in (ord("n"), ord("N")):
-            selected = _add_channel(screen, state, profiles, selected, calculator)
-        elif key in (ord("e"), ord("E")) and profiles:
-            selected = _update_channel(screen, state, profiles, selected, calculator)
-        elif key in (ord("d"), ord("D")) and profiles:
-            selected = _delete_channel(screen, state, profiles, selected)
+        elif key == curses.KEY_END and visible_indices:
+            selected = len(visible_indices) - 1
+        elif key == ord("n"):
+            actual_selected = visible_indices[selected] if visible_indices else len(all_profiles)
+            actual_selected = _add_channel(screen, state, all_profiles, actual_selected, calculator)
+            selected = _visible_channel_selection(
+                state.settings.comparison_profiles, filter_text, actual_selected, selected
+            )
+        elif key == ord("N") and visible_indices:
+            actual_selected = visible_indices[selected]
+            actual_selected = _add_channel(
+                screen, state, all_profiles, actual_selected, calculator, copying=True
+            )
+            selected = _visible_channel_selection(
+                state.settings.comparison_profiles, filter_text, actual_selected, selected
+            )
+        elif key in (ord("e"), ord("E")) and visible_indices:
+            actual_selected = visible_indices[selected]
+            actual_selected = _update_channel(screen, state, all_profiles, actual_selected, calculator)
+            selected = _visible_channel_selection(
+                state.settings.comparison_profiles, filter_text, actual_selected, selected
+            )
+        elif key in (ord("d"), ord("D")) and visible_indices:
+            actual_selected = visible_indices[selected]
+            actual_selected = _delete_channel(screen, state, all_profiles, actual_selected)
+            selected = _visible_channel_selection(
+                state.settings.comparison_profiles, filter_text, actual_selected, selected
+            )
         elif key in (ord("s"), ord("S"), 19):
             _save_channels(state)
         elif key in (ord("r"), ord("R"), 4):
