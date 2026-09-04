@@ -161,6 +161,7 @@ class CursesTuiStateTests(unittest.TestCase):
             screen = _RecordingScreen()
             _draw_main(screen, state, (1, 2, 3, 4))
             self.assertIn("配置文件无法保存", screen.lines[11])
+            self.assertIn("!换算值", screen.lines[6])
 
     def test_minimum_main_window_keeps_footer_below_results(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -553,8 +554,9 @@ class CursesChannelViewTests(unittest.TestCase):
             self.assertIn("当前 CNY", output)
             self.assertIn("相对 ChatGPT", output)
             self.assertIn("· ChatGPT 中转", output)
-            self.assertIn("4.50678902 元", output)
-            self.assertIn("3.88794668x", output)
+            self.assertIn("4.5068 元", output)
+            self.assertIn("3.8879x", output)
+            self.assertIn("精确成本 17.5221554 元", output)
             self.assertNotIn("> ChatGPT 中转", output)
 
     def test_narrow_channel_table_puts_cost_in_selected_details(self) -> None:
@@ -579,7 +581,7 @@ class CursesChannelViewTests(unittest.TestCase):
             screen = _RecordingScreen(height=24, width=140)
             _draw_channels(screen, state, 0, (1, 2, 3, 4), CalculatorSession())
             self.assertIn("10", screen.lines[4])
-            self.assertIn(expected_yuan, screen.lines[4])
+            self.assertIn(curses_tui._compact_metric(expected_yuan), screen.lines[4])
 
     def test_channel_table_keeps_baseline_when_no_editable_channels_exist(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

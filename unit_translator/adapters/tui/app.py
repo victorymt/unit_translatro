@@ -705,9 +705,14 @@ def _field(
     active: bool,
     cursor: int | None = None,
     slot_width: int | None = None,
+    *,
+    invalid: bool = False,
+    error_attr: int = 0,
 ) -> None:
-    _addstr(screen, row, col, label)
-    value_col = col + max(9, display_width(label) + 1)
+    label_text = f"!{label}" if invalid else label
+    label_attr = error_attr if invalid else 0
+    _addstr(screen, row, col, label_text, label_attr)
+    value_col = col + max(9, display_width(label_text) + 1)
     _, screen_width = screen.getmaxyx()
     if slot_width is None:
         slot_width = max(3, screen_width - col - 2)
@@ -720,8 +725,29 @@ def _field(
         shown, _ = _edit_display(value, len(value), max(1, value_capacity))
         value_text = f" {shown or ' '} "
     attr = curses.A_REVERSE | curses.A_BOLD if active else curses.A_BOLD
+    if invalid:
+        attr |= error_attr
     _addstr(screen, row, value_col, value_text, attr)
-    _addstr(screen, row, unit_col, unit)
+    _addstr(screen, row, unit_col, unit, label_attr)
+
+
+def _main_invalid_fields(message: str, mode: str) -> frozenset[str]:
+    """Map a validation message to the main-screen fields it invalidates."""
+    markers = {
+        "充值比例": "balance_per_yuan",
+        "美元兑人民币汇率": "usd_cny_rate",
+        "输入 Token 官方价": "input_price",
+        "输出 Token 官方价": "output_price",
+        "缓存 Token 官方价": "cached_price",
+    }
+    value_marker = {
+        "multiplier": "倍率",
+        "fen": "每刀价格",
+        "token_cost": "用户自有 1 亿 Token 实际支出",
+    }.get(mode)
+    if value_marker:
+        markers[value_marker] = "value"
+    return frozenset(field_name for marker, field_name in markers.items() if marker in message)
 
 
 def _draw_main(
@@ -760,45 +786,6 @@ def _draw_main(
         "fen": "分/刀",
         "token_cost": "元/1亿 Token",
     }[state.mode]
-    parameter_rows = MAIN_PARAMETER_ROWS
-    _field(
-        screen, parameter_rows[0], left_col, value_label, state.value,
-        value_unit,
-        state.active_field == 0,
-        state.cursor if state.active_field == 0 else None,
-        column_width,
-    )
-    _field(
-        screen, parameter_rows[0], right_col, "充值比例", state.balance_per_yuan, "刀/元",
-        state.active_field == 1,
-        state.cursor if state.active_field == 1 else None,
-        column_width,
-    )
-    _field(
-        screen, parameter_rows[1], left_col, "美元汇率", state.usd_cny_rate, "元/USD",
-        state.active_field == 2,
-        state.cursor if state.active_field == 2 else None,
-        column_width,
-    )
-    _field(
-        screen, parameter_rows[1], right_col, "输入价", state.input_price, "刀/1M",
-        state.active_field == 3,
-        state.cursor if state.active_field == 3 else None,
-        column_width,
-    )
-    _field(
-        screen, parameter_rows[2], left_col, "输出价", state.output_price, "刀/1M",
-        state.active_field == 4,
-        state.cursor if state.active_field == 4 else None,
-        column_width,
-    )
-    _field(
-        screen, parameter_rows[2], right_col, "缓存价", state.cached_price, "刀/1M",
-        state.active_field == 5,
-        state.cursor if state.active_field == 5 else None,
-        column_width,
-    )
-
     try:
         display = state.calculate()
     except ValueError as exc:
@@ -806,6 +793,60 @@ def _draw_main(
         state.calculation_error = str(exc)
     else:
         state.calculation_error = ""
+    invalid_fields = _main_invalid_fields(
+        state.calculation_error or state.error,
+        state.mode,
+    )
+    parameter_rows = MAIN_PARAMETER_ROWS
+    _field(
+        screen, parameter_rows[0], left_col, value_label, state.value,
+        value_unit,
+        state.active_field == 0,
+        state.cursor if state.active_field == 0 else None,
+        column_width,
+        invalid="value" in invalid_fields,
+        error_attr=error_color,
+    )
+    _field(
+        screen, parameter_rows[0], right_col, "充值比例", state.balance_per_yuan, "刀/元",
+        state.active_field == 1,
+        state.cursor if state.active_field == 1 else None,
+        column_width,
+        invalid="balance_per_yuan" in invalid_fields,
+        error_attr=error_color,
+    )
+    _field(
+        screen, parameter_rows[1], left_col, "美元汇率", state.usd_cny_rate, "元/USD",
+        state.active_field == 2,
+        state.cursor if state.active_field == 2 else None,
+        column_width,
+        invalid="usd_cny_rate" in invalid_fields,
+        error_attr=error_color,
+    )
+    _field(
+        screen, parameter_rows[1], right_col, "输入价", state.input_price, "刀/1M",
+        state.active_field == 3,
+        state.cursor if state.active_field == 3 else None,
+        column_width,
+        invalid="input_price" in invalid_fields,
+        error_attr=error_color,
+    )
+    _field(
+        screen, parameter_rows[2], left_col, "输出价", state.output_price, "刀/1M",
+        state.active_field == 4,
+        state.cursor if state.active_field == 4 else None,
+        column_width,
+        invalid="output_price" in invalid_fields,
+        error_attr=error_color,
+    )
+    _field(
+        screen, parameter_rows[2], right_col, "缓存价", state.cached_price, "刀/1M",
+        state.active_field == 5,
+        state.cursor if state.active_field == 5 else None,
+        column_width,
+        invalid="cached_price" in invalid_fields,
+        error_attr=error_color,
+    )
     _draw_rule(screen, MAIN_RESULT_RULE_ROW, "结果", accent)
     if display is not None:
         usage = state.settings.usage
@@ -1359,6 +1400,24 @@ def _channel_cost_text(row: _ChannelDisplayRow) -> tuple[str, str]:
     return row.comparison.yuan, row.comparison.relative_cost
 
 
+def _compact_metric(text: str, max_places: int = 4) -> str:
+    """Shorten a displayed cost while retaining its unit and special values."""
+    if text in {"--", "基准"}:
+        return text
+    suffix = " 元" if text.endswith(" 元") else "x" if text.endswith("x") else ""
+    raw = text[:-len(suffix)] if suffix else text
+    try:
+        return f"{format_decimal(Decimal(raw), max_places=max_places)}{suffix}"
+    except (ArithmeticError, ValueError):
+        return text
+
+
+def _channel_table_cost_text(row: _ChannelDisplayRow) -> tuple[str, str]:
+    """Return scan-friendly cost values for the dense channel table."""
+    yuan, relative = _channel_cost_text(row)
+    return _compact_metric(yuan), _compact_metric(relative)
+
+
 def _channel_table_row(
     row: _ChannelDisplayRow,
     marker: str,
@@ -1384,7 +1443,7 @@ def _channel_table_row(
     )
     text = f"{marker} {name}  {provider}  " + "  ".join(values)
     if full_cost:
-        yuan, relative = _channel_cost_text(row)
+        yuan, relative = _channel_table_cost_text(row)
         text += f"  {_right_display(yuan, cost_width)}  {_right_display(relative, relative_width)}"
     return text
 
@@ -1408,7 +1467,7 @@ def _draw_channels(
         1,
         2,
         clip_display(
-            "↑/↓ 或 j/k 选择  n 新建  e 编辑  d 删除  Esc 返回 · F1/? 帮助",
+            "↑↓/j/k 选择 · n 新建 · e 编辑 · d 删除 · Esc/q 返回 · F1/? 帮助",
             width - 4,
         ),
         dim,
@@ -1417,7 +1476,7 @@ def _draw_channels(
     _draw_rule(
         screen,
         2,
-        f"价格目录 · USD / 1M tokens · 主屏口径 · {len(profiles)} 个可编辑渠道",
+        f"价格目录 · USD / 1M tokens · 主屏模式/用量/汇率 · {len(profiles)} 个可编辑渠道",
         dim,
     )
     panel_top = _calculator_panel_top(screen, calculator, MAIN_PANEL_FLOOR) if calculator is not None else height - 5
@@ -1451,7 +1510,7 @@ def _draw_channels(
         provider_width = max(12, width - name_width - (35 if compact else 43))
         cost_width = relative_width = 0
 
-    detail_rows = 3 if full_cost else 4
+    detail_rows = 4
     detail_row = max(5, panel_top - detail_rows - 1)
     table_start = 4
     table_capacity = max(1, detail_row - table_start)
@@ -1531,16 +1590,16 @@ def _draw_channels(
         detail_title = f"选中渠道详情 · {selected + 1}/{len(profiles)}"
     _addstr(screen, detail_row, 2, detail_title, dim)
     detail_offset = 1
-    if not full_cost:
-        yuan, relative = _channel_cost_text(selected_row)
-        _addstr(
-            screen,
-            detail_row + detail_offset,
-            2,
-            clip_display(f"当前 CNY {yuan}  ·  相对 ChatGPT {relative}", width - 4),
-            dim,
-        )
-        detail_offset += 1
+    yuan, relative = _channel_cost_text(selected_row)
+    cost_label = "精确成本" if full_cost else "当前 CNY"
+    _addstr(
+        screen,
+        detail_row + detail_offset,
+        2,
+        clip_display(f"{cost_label} {yuan}  ·  相对 ChatGPT {relative}", width - 4),
+        dim,
+    )
+    detail_offset += 1
     profile = selected_row.profile
     _addstr(
         screen,
