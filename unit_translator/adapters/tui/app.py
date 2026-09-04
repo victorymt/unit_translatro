@@ -61,6 +61,7 @@ CALCULATOR_BASE_ROWS = 3
 CALCULATOR_EMPTY_ROWS = 4
 CALCULATOR_HISTORY_ENTRY_ROWS = 2
 CALCULATOR_FOCUS_KEY = getattr(curses, "KEY_F6", 274)
+HELP_KEY = getattr(curses, "KEY_F1", 265)
 MAIN_PARAMETER_ROWS = (6, 7, 8)
 MAIN_RESULT_RULE_ROW = 10
 MAIN_COMPARISON_TITLE_ROW = 15
@@ -160,43 +161,154 @@ def _draw_rule(screen: curses.window, row: int, label: str, attr: int = 0) -> No
     _addstr(screen, row, 2, text + "─" * remaining, attr)
 
 
-def _footer_text(width: int, page: str = "main") -> str:
-    """Choose a grouped footer that fits while retaining the key exit hint."""
-    if page == "channels":
+def _footer_text(
+    width: int,
+    page: str = "main",
+    *,
+    calculator_focused: bool = False,
+    allow_question: bool = True,
+) -> str:
+    """Choose a grouped footer that fits while retaining help and exit hints."""
+    help_hint = "帮助 F1/?" if allow_question else "帮助 F1"
+    if calculator_focused:
+        candidates = ("F6 释放焦点", "Esc 取消输入", help_hint)
+        variants = (
+            tuple(range(len(candidates))),
+            (0, 2),
+            (2,),
+        )
+    elif page == "channels":
         candidates = (
             "选择 ↑/↓ j/k",
             "操作 n 新建 e 编辑 d 删除",
             "文件 s 保存 r 还原",
+            help_hint,
             "返回 Esc/q",
         )
-        fallback = (candidates[0], candidates[-1])
+        variants = (
+            tuple(range(len(candidates))),
+            (0, 1, 3, 4),
+            (0, 3, 4),
+            (3, 4),
+        )
     elif page == "usage":
-        candidates = ("编辑 Enter", "返回 Esc")
-        fallback = candidates
+        candidates = ("编辑 Enter", help_hint, "返回 Esc")
+        variants = (
+            tuple(range(len(candidates))),
+            (0, 1, 2),
+            (1, 2),
+        )
     else:
         candidates = (
             "编辑 Tab/方向键",
             "模式 m",
             "页面 u 用量 c 渠道",
             "文件 s 保存 r 还原",
+            help_hint,
             "退出 q",
         )
-        fallback = (candidates[0], candidates[1], candidates[-1])
-    for indexes in (
-        tuple(range(len(candidates))),
-        tuple(index for index in range(len(candidates)) if index not in {len(candidates) - 2}),
-        fallback,
-    ):
+        variants = (
+            tuple(range(len(candidates))),
+            (0, 1, 2, 4, 5),
+            (0, 4, 5),
+            (4, 5),
+        )
+    for indexes in variants:
         text = "  ".join(candidates[index] for index in indexes)
         if display_width(text) <= max(1, width - 4):
             return text
-    return clip_display("  ".join(fallback), max(1, width - 4))
+    return clip_display("  ".join(candidates[index] for index in variants[-1]), max(1, width - 4))
 
 
-def _draw_footer(screen: curses.window, page: str = "main") -> None:
-    """Render the page footer with grouped, width-aware keyboard hints."""
-    height, _ = screen.getmaxyx()
-    _addstr(screen, height - 1, 2, _footer_text(screen.getmaxyx()[1], page), curses.A_DIM)
+def _draw_footer(
+    screen: curses.window,
+    page: str = "main",
+    calculator: CalculatorSession | None = None,
+    *,
+    allow_question: bool = True,
+) -> None:
+    """Render page-specific keyboard hints with calculator focus feedback."""
+    height, width = screen.getmaxyx()
+    _addstr(
+        screen,
+        height - 1,
+        2,
+        _footer_text(
+            width,
+            page,
+            calculator_focused=bool(calculator and calculator.focused),
+            allow_question=allow_question and not bool(calculator and calculator.focused),
+        ),
+        curses.A_DIM,
+    )
+
+
+def _draw_status(screen: curses.window, state: CursesTuiState, dim: int) -> None:
+    """Show the same saved/dirty status in every settings page heading."""
+    _, width = screen.getmaxyx()
+    status = "未保存" if state.is_dirty() else "已保存"
+    attr = curses.A_BOLD if state.is_dirty() else dim
+    _addstr(screen, 0, max(2, width - display_width(status) - 2), status, attr)
+
+
+def _is_help_key(key: object, *, allow_question: bool = True) -> bool:
+    """Return whether a key opens the contextual help view."""
+    if key == HELP_KEY:
+        return True
+    if not allow_question:
+        return False
+    if isinstance(key, str):
+        return key == "?"
+    return key == ord("?")
+
+
+def _show_help(
+    screen: curses.window,
+    page: str,
+    colors: tuple[int, int, int, int],
+    calculator: CalculatorSession | None = None,
+) -> None:
+    """Render a short, page-specific help screen until the user presses a key."""
+    _, _, _, dim = colors
+    height, width = screen.getmaxyx()
+    titles = {
+        "main": "主屏快捷键",
+        "channels": "渠道管理快捷键",
+        "usage": "用量配比快捷键",
+    }
+    lines = {
+        "main": (
+            "Tab/Enter/↓ 下一字段 · ↑/Shift-Tab 上一字段",
+            "m 切换模式 · u 打开用量配比 · c 打开渠道管理",
+            "s 保存 · r 还原未保存修改 · q/Esc 退出",
+            "F6 聚焦快速计算器；聚焦时先按 F6 释放焦点",
+        ),
+        "channels": (
+            "↑/↓ 或 j/k 选择 · Home/End 跳到首尾",
+            "n 新建 · e 编辑 · d 删除 · s 保存 · r 还原",
+            "ChatGPT 中转基准为只读，不参与编辑选择",
+            "F6 聚焦快速计算器；聚焦时 Esc 只释放焦点",
+            "q/Esc 返回主屏",
+        ),
+        "usage": (
+            "Tab/Enter/↓ 下一字段 · ↑/Shift-Tab 上一字段",
+            "Enter 在最后一项提交；Esc 放弃本次草稿",
+            "F6 聚焦快速计算器；聚焦时先按 F6 释放焦点",
+        ),
+    }.get(page, ("F1/? 返回帮助",))
+    screen.erase()
+    _addstr(screen, 0, 2, titles.get(page, "快捷键帮助"), curses.A_BOLD | colors[0])
+    row = 2
+    for line in lines:
+        if row >= height - 1:
+            break
+        _addstr(screen, row, 4, clip_display(line, max(1, width - 8)), dim)
+        row += 1
+    if calculator and calculator.focused:
+        _addstr(screen, max(2, row + 1), 4, "当前：快速计算器已聚焦，其他页面快捷键暂不生效", colors[0])
+    _addstr(screen, height - 1, 2, "按任意键返回", curses.A_DIM)
+    screen.refresh()
+    screen.getch()
 
 
 def _calculator_panel_layout(
@@ -626,8 +738,7 @@ def _draw_main(
     compact = _compact_screen(width, height)
 
     _addstr(screen, 0, 2, "Unit Translator", curses.A_BOLD | accent)
-    status = "未保存" if state.is_dirty() else "已保存"
-    _addstr(screen, 0, max(2, width - display_width(status) - 2), status, dim)
+    _draw_status(screen, state, dim)
     _addstr(screen, 1, 2, clip_display(str(state.document.path), width - 4), dim)
 
     content_width = max(1, width - 4)
@@ -788,7 +899,7 @@ def _draw_main(
     elif state.message:
         _addstr(screen, feedback_row, 2, clip_display(state.message, width - 4), success)
     _draw_calculator_panel(screen, calculator, colors, MAIN_PANEL_FLOOR)
-    _draw_footer(screen)
+    _draw_footer(screen, calculator=calculator)
     screen.refresh()
 
 
@@ -1042,6 +1153,7 @@ def _edit_channel_interactive(
         _, width = screen.getmaxyx()
         accent, _, error_color, dim = panel_colors
         _addstr(screen, 0, 2, "编辑渠道" if profile else "新建渠道", curses.A_BOLD | accent)
+        _addstr(screen, 0, max(2, width - display_width("编辑中") - 2), "编辑中", dim)
         _addstr(screen, 1, 2, "Enter 下一项/最后一项提交 · Esc 取消 · F6 计算器", dim)
         _draw_rule(screen, 2, "渠道字段", dim)
         for row, (name, label, _) in enumerate(fields, start=3):
@@ -1055,9 +1167,12 @@ def _edit_channel_interactive(
                 error_color,
             )
         _draw_calculator_panel(screen, calculator, (accent, curses.A_BOLD, error_color, dim), 13)
-        _draw_footer(screen, "channels")
+        _draw_footer(screen, "channels", calculator, allow_question=False)
         screen.refresh()
         key = _read_editor_key(screen)
+        if _is_help_key(key, allow_question=False):
+            _show_help(screen, "channels", panel_colors, calculator)
+            continue
         if _handle_calculator_key(calculator, key):
             continue
         if key == 27:
@@ -1106,6 +1221,7 @@ def _run_usage_interactive(
     while True:
         screen.erase()
         _addstr(screen, 0, 2, "Token 用量配比（高级）", curses.A_BOLD | accent)
+        _draw_status(screen, state, dim)
         _addstr(screen, 1, 2, "单位：Token 数量；F6 切换计算器，Esc 放弃草稿", dim)
         _draw_rule(screen, 3, "Token 配比", dim)
         for row, (name, label, _) in enumerate(fields, start=4):
@@ -1113,9 +1229,12 @@ def _run_usage_interactive(
         if error:
             _addstr(screen, 8, 2, clip_display(error, screen.getmaxyx()[1] - 4), error_color)
         _draw_calculator_panel(screen, calculator, colors, 9)
-        _draw_footer(screen, "usage")
+        _draw_footer(screen, "usage", calculator)
         screen.refresh()
         key = _read_editor_key(screen)
+        if _is_help_key(key, allow_question=not calculator.focused):
+            _show_help(screen, "usage", colors, calculator)
+            continue
         if _handle_calculator_key(calculator, key):
             continue
         if key == 27:
@@ -1283,18 +1402,24 @@ def _draw_channels(
     if _draw_size_warning(screen, error_color):
         return
     _addstr(screen, 0, 2, "渠道管理", curses.A_BOLD | accent)
+    _draw_status(screen, state, dim)
     _addstr(
         screen,
         1,
         2,
         clip_display(
-            "↑/↓ 或 j/k 选择  n 新建  e 编辑  d 删除  Esc 返回 · 成本同步主屏",
+            "↑/↓ 或 j/k 选择  n 新建  e 编辑  d 删除  Esc 返回 · F1/? 帮助",
             width - 4,
         ),
         dim,
     )
-    _draw_rule(screen, 2, "价格目录 · USD / 1M tokens", dim)
     profiles = state.settings.comparison_profiles
+    _draw_rule(
+        screen,
+        2,
+        f"价格目录 · USD / 1M tokens · 主屏口径 · {len(profiles)} 个可编辑渠道",
+        dim,
+    )
     panel_top = _calculator_panel_top(screen, calculator, MAIN_PANEL_FLOOR) if calculator is not None else height - 5
 
     try:
@@ -1401,13 +1526,10 @@ def _draw_channels(
         _addstr(screen, table_start + 1, 2, "暂无可管理渠道，按 n 新建", dim)
 
     selected_row = rows[selected + 1] if profiles else baseline
-    _addstr(
-        screen,
-        detail_row,
-        2,
-        "选中渠道详情" if selected_row.editable else "ChatGPT 中转基准详情",
-        dim,
-    )
+    detail_title = "ChatGPT 中转基准详情"
+    if selected_row.editable:
+        detail_title = f"选中渠道详情 · {selected + 1}/{len(profiles)}"
+    _addstr(screen, detail_row, 2, detail_title, dim)
     detail_offset = 1
     if not full_cost:
         yuan, relative = _channel_cost_text(selected_row)
@@ -1445,7 +1567,7 @@ def _draw_channels(
     elif state.message:
         _addstr(screen, message_row, 2, clip_display(state.message, width - 4), accent)
     _draw_calculator_panel(screen, calculator, colors, MAIN_PANEL_FLOOR)
-    _draw_footer(screen, "channels")
+    _draw_footer(screen, "channels", calculator)
     screen.refresh()
 
 
@@ -1527,6 +1649,7 @@ def _run_usage(
     if _draw_size_warning(screen, error_color):
         return
     _addstr(screen, 0, 2, "Token 用量配比（高级）", curses.A_BOLD | accent)
+    _draw_status(screen, state, dim)
     _addstr(
         screen,
         1,
@@ -1597,6 +1720,9 @@ def _run_channels(
         selected = min(selected, max(0, len(profiles) - 1))
         _draw_channels(screen, state, selected, colors, calculator)
         key = screen.getch()
+        if _is_help_key(key, allow_question=not bool(calculator and calculator.focused)):
+            _show_help(screen, "channels", colors, calculator)
+            continue
         if _handle_calculator_key(calculator, key):
             continue
         if key in (27, ord("q"), ord("Q")):
@@ -1607,6 +1733,10 @@ def _run_channels(
             selected = max(0, selected - 1)
         elif key in (curses.KEY_DOWN, ord("j")) and profiles:
             selected = min(len(profiles) - 1, selected + 1)
+        elif key == curses.KEY_HOME and profiles:
+            selected = 0
+        elif key == curses.KEY_END and profiles:
+            selected = len(profiles) - 1
         elif key in (ord("n"), ord("N")):
             selected = _add_channel(screen, state, profiles, selected, calculator)
         elif key in (ord("e"), ord("E")) and profiles:
@@ -1627,6 +1757,9 @@ def _handle_main_key(
     calculator: CalculatorSession | None = None,
 ) -> bool:
     """Apply one main-screen key and report whether the TUI should exit."""
+    if _is_help_key(key, allow_question=not bool(calculator and calculator.focused)):
+        _show_help(screen, "main", colors, calculator)
+        return False
     if _handle_calculator_key(calculator, key):
         return False
     if key in (ord("q"), ord("Q"), 27, 17):

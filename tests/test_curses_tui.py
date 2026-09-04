@@ -86,6 +86,19 @@ class CursesTuiStateTests(unittest.TestCase):
             _handle_main_key(screen, state, (1, 2, 3, 4), ord("m"))
             self.assertEqual(state.mode, "fen")
 
+    def test_main_help_shortcut_opens_contextual_help(self) -> None:
+        class HelpScreen(_RecordingScreen):
+            def getch(self) -> int:
+                return ord("x")
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = self._state(directory)
+            screen = HelpScreen(height=24, width=80)
+            self.assertFalse(_handle_main_key(screen, state, (1, 2, 3, 4), ord("?")))
+            output = "\n".join(screen.lines.values())
+            self.assertIn("主屏快捷键", output)
+            self.assertIn("c 打开渠道管理", output)
+
     def test_usage_edit_is_saved_with_the_other_settings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = self._state(directory)
@@ -193,7 +206,9 @@ class CursesTuiStateTests(unittest.TestCase):
 
     def test_grouped_footer_fits_full_and_compact_widths(self) -> None:
         for width in (72, 80, 100):
-            self.assertLessEqual(display_width(_footer_text(width)), width - 4)
+            footer = _footer_text(width)
+            self.assertLessEqual(display_width(footer), width - 4)
+            self.assertIn("帮助", footer)
 
     def test_main_parameters_are_rendered_without_blank_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -469,6 +484,64 @@ class _RecordingScreen:
 
 
 class CursesChannelViewTests(unittest.TestCase):
+    def test_channel_page_shows_save_status_and_selection_position(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            screen = _RecordingScreen(height=24, width=80)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4))
+            self.assertIn("已保存", screen.lines[0])
+            self.assertIn("选中渠道详情 · 1/4", "\n".join(screen.lines.values()))
+
+            state.input_price = "6"
+            screen = _RecordingScreen(height=24, width=80)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4))
+            self.assertIn("未保存", screen.lines[0])
+
+    def test_help_screen_explains_page_actions(self) -> None:
+        class HelpScreen(_RecordingScreen):
+            def getch(self) -> int:
+                return ord("x")
+
+        screen = HelpScreen(height=24, width=80)
+        curses_tui._show_help(screen, "channels", (1, 2, 3, 4))
+        output = "\n".join(screen.lines.values())
+        self.assertIn("渠道管理快捷键", output)
+        self.assertIn("n 新建", output)
+        self.assertIn("只读", output)
+        self.assertIn("按任意键返回", output)
+
+    def test_focused_calculator_footer_explains_how_to_release_focus(self) -> None:
+        session = CalculatorSession()
+        session.focused = True
+        with tempfile.TemporaryDirectory() as directory:
+            screen = _RecordingScreen(height=24, width=80)
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            _draw_channels(screen, state, 0, (1, 2, 3, 4), session)
+            self.assertIn("F6 释放焦点", screen.lines[23])
+
+    def test_channel_home_and_end_jump_to_first_and_last_profile(self) -> None:
+        class KeyScreen(_RecordingScreen):
+            def __init__(self) -> None:
+                super().__init__(height=24, width=80)
+                self.keys = [curses.KEY_END, ord("q")]
+
+            def getch(self) -> int:
+                return self.keys.pop(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            screen = KeyScreen()
+            _run_channels(screen, state, (1, 2, 3, 4))
+            output = "\n".join(screen.lines.values())
+            self.assertIn("> DeepSeek V4 Pro", output)
+            self.assertIn("选中渠道详情 · 4/4", output)
+
     def test_wide_channel_table_includes_baseline_and_cost_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = CursesTuiState.from_document(
