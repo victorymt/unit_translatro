@@ -30,6 +30,7 @@ from unit_translator.infrastructure.settings import (
 from unit_translator.adapters.tui.calculator import (
     CalculationDisplay,
     CalculatorInputs,
+    ComparisonDisplayRow,
     calculate_display,
 )
 from unit_translator.adapters.tui.bc_calculator import CalculatorSession, HistoryEntry
@@ -64,10 +65,20 @@ MAIN_PARAMETER_ROWS = (6, 7, 8)
 MAIN_RESULT_RULE_ROW = 10
 MAIN_COMPARISON_TITLE_ROW = 15
 MAIN_PANEL_FLOOR = 14
+CHANNEL_FULL_COST_MIN_WIDTH = 120
 
 
 class _PromptInputError(Exception):
     """Raised when the terminal cannot read a prompted value."""
+
+
+@dataclass(frozen=True)
+class _ChannelDisplayRow:
+    """One channel row paired with the current calculated comparison values."""
+
+    profile: TokenPriceProfile
+    comparison: ComparisonDisplayRow | None
+    editable: bool = True
 
 
 def display_width(text: str) -> int:
@@ -1178,6 +1189,87 @@ def _edit_channel(screen: curses.window, profile: TokenPriceProfile | None) -> T
             values[field_name] = value
 
 
+def _current_chatgpt_profile(state: CursesTuiState) -> TokenPriceProfile:
+    """Return the ChatGPT profile with the currently edited prices applied."""
+    profile = state.settings.chatgpt_profile
+    try:
+        return replace(
+            profile,
+            input_price=_non_negative(
+                state.input_price,
+                "ChatGPT 输入 Token 官方价",
+            ),
+            output_price=_non_negative(
+                state.output_price,
+                "ChatGPT 输出 Token 官方价",
+            ),
+            cached_price=_non_negative(
+                state.cached_price,
+                "ChatGPT 缓存 Token 官方价",
+            ),
+        )
+    except ValueError:
+        # Keep the saved profile visible while a price draft is invalid; the
+        # cost columns will show ``--`` with the calculation error.
+        return profile
+
+
+def _channel_display_rows(
+    state: CursesTuiState,
+    display: CalculationDisplay | None,
+) -> tuple[_ChannelDisplayRow, ...]:
+    """Pair the fixed ChatGPT baseline and editable profiles with costs."""
+    comparisons = display.comparison if display is not None else ()
+    rows = [
+        _ChannelDisplayRow(
+            _current_chatgpt_profile(state),
+            comparisons[0] if comparisons else None,
+            editable=False,
+        )
+    ]
+    for index, profile in enumerate(state.settings.comparison_profiles, start=1):
+        comparison = comparisons[index] if index < len(comparisons) else None
+        rows.append(_ChannelDisplayRow(profile, comparison))
+    return tuple(rows)
+
+
+def _channel_cost_text(row: _ChannelDisplayRow) -> tuple[str, str]:
+    """Return formatted CNY and relative-cost values for a channel row."""
+    if row.comparison is None:
+        return "--", "--"
+    return row.comparison.yuan, row.comparison.relative_cost
+
+
+def _channel_table_row(
+    row: _ChannelDisplayRow,
+    marker: str,
+    name_width: int,
+    provider_width: int,
+    price_width: int,
+    *,
+    full_cost: bool,
+    cost_width: int = 16,
+    relative_width: int = 14,
+) -> str:
+    """Format one channel row for either the full or compact table."""
+    profile = row.profile
+    name = pad_display(clip_display(profile.name, name_width - 2), name_width - 2)
+    provider = pad_display(
+        clip_display(f"{profile.provider} / {profile.model or '未标注'}", provider_width),
+        provider_width,
+    )
+    values = (
+        f"{format_decimal(profile.input_price):>{price_width}}",
+        f"{format_decimal(profile.output_price):>{price_width}}",
+        f"{format_decimal(profile.cached_price):>{price_width}}",
+    )
+    text = f"{marker} {name}  {provider}  " + "  ".join(values)
+    if full_cost:
+        yuan, relative = _channel_cost_text(row)
+        text += f"  {_right_display(yuan, cost_width)}  {_right_display(relative, relative_width)}"
+    return text
+
+
 def _draw_channels(
     screen: curses.window,
     state: CursesTuiState,
@@ -1191,67 +1283,165 @@ def _draw_channels(
     if _draw_size_warning(screen, error_color):
         return
     _addstr(screen, 0, 2, "渠道管理", curses.A_BOLD | accent)
-    _addstr(screen, 1, 2, clip_display("↑/↓ 或 j/k 选择  n 新建  e 编辑  d 删除  Esc 返回", width - 4), dim)
+    _addstr(
+        screen,
+        1,
+        2,
+        clip_display(
+            "↑/↓ 或 j/k 选择  n 新建  e 编辑  d 删除  Esc 返回 · 成本同步主屏",
+            width - 4,
+        ),
+        dim,
+    )
     _draw_rule(screen, 2, "价格目录 · USD / 1M tokens", dim)
     profiles = state.settings.comparison_profiles
     panel_top = _calculator_panel_top(screen, calculator, MAIN_PANEL_FLOOR) if calculator is not None else height - 5
-    if not profiles:
-        _addstr(screen, 4, 2, "暂无渠道", dim)
+
+    try:
+        display = state.calculate()
+    except ValueError as exc:
+        display = None
+        state.calculation_error = str(exc)
     else:
-        # Keep every core pricing field in the list; only optional metadata is
-        # relegated to the selected-channel detail rows below.
-        compact = _compact_screen(width, height)
-        price_width = 8 if compact else 10
+        state.calculation_error = ""
+
+    rows = _channel_display_rows(state, display)
+    full_cost = width >= CHANNEL_FULL_COST_MIN_WIDTH
+    compact = _compact_screen(width, height)
+    if full_cost:
+        price_width = 10
+    elif compact:
+        price_width = 7
+    else:
+        price_width = 8
+    if full_cost:
+        name_width = 20
+        cost_width = 16
+        relative_width = 14
+        separators_width = 2 * 6
+        fixed_width = name_width + price_width * 3 + cost_width + relative_width
+        provider_width = max(14, width - 4 - fixed_width - separators_width)
+    else:
         name_width = max(12, min(18 if compact else 20, (width - (35 if compact else 43)) // 2))
         provider_width = max(12, width - name_width - (35 if compact else 43))
-        header = (
-            f"{pad_display('渠道', name_width)}  "
-            f"{pad_display('提供商/模型', provider_width)}  "
-            f"{pad_display('输入价', price_width)}  "
-            f"{pad_display('输出价', price_width)}  "
-            f"{pad_display('缓存价', price_width)}"
+        cost_width = relative_width = 0
+
+    detail_rows = 3 if full_cost else 4
+    detail_row = max(5, panel_top - detail_rows - 1)
+    table_start = 4
+    table_capacity = max(1, detail_row - table_start)
+    profile_visible = max(0, table_capacity - 1)
+    start = (
+        min(
+            max(0, selected - profile_visible + 1),
+            max(0, len(profiles) - profile_visible),
         )
-        _addstr(screen, 3, 2, clip_display(header, width - 4), dim)
-        detail_row = max(5, panel_top - 4)
-        visible = max(1, detail_row - 4)
-        start = min(max(0, selected - visible + 1), max(0, len(profiles) - visible))
-        for row, index in enumerate(range(start, min(len(profiles), start + visible)), start=4):
-            profile = profiles[index]
-            marker = ">" if index == selected else " "
-            name = pad_display(clip_display(profile.name, name_width - 2), name_width - 2)
-            provider = pad_display(
-                clip_display(f"{profile.provider} / {profile.model or '未标注'}", provider_width),
+        if profile_visible
+        else 0
+    )
+    header = (
+        f"{pad_display('渠道', name_width)}  "
+        f"{pad_display('提供商/模型', provider_width)}  "
+        f"{pad_display('输入价', price_width)}  "
+        f"{pad_display('输出价', price_width)}  "
+        f"{pad_display('缓存价', price_width)}"
+    )
+    if full_cost:
+        header += (
+            f"  {pad_display('当前 CNY', cost_width)}"
+            f"  {pad_display('相对 ChatGPT', relative_width)}"
+        )
+    _addstr(screen, 3, 2, clip_display(header, width - 4), dim)
+
+    baseline = rows[0]
+    _addstr(
+        screen,
+        table_start,
+        2,
+        clip_display(
+            _channel_table_row(
+                baseline,
+                "·",
+                name_width,
                 provider_width,
-            )
-            text = (
-                f"{marker} {name}  {provider}  "
-                f"{format_decimal(profile.input_price):>{price_width}}  "
-                f"{format_decimal(profile.output_price):>{price_width}}  "
-                f"{format_decimal(profile.cached_price):>{price_width}}"
-            )
-            _addstr(screen, row, 2, clip_display(text, width - 4), curses.A_REVERSE if index == selected else 0)
-        profile = profiles[selected]
-        _addstr(screen, detail_row, 2, "选中渠道详情", dim)
+                price_width,
+                full_cost=full_cost,
+                cost_width=cost_width,
+                relative_width=relative_width,
+            ),
+            width - 4,
+        ),
+        accent | curses.A_BOLD,
+    )
+    for row, index in enumerate(
+        range(start, min(len(profiles), start + profile_visible)),
+        start=table_start + 1,
+    ):
+        profile_row = rows[index + 1]
         _addstr(
             screen,
-            detail_row + 1,
+            row,
             2,
             clip_display(
-                f"计价 {profile.currency}/{profile.unit}  生效 {profile.effective_at or '--'}  版本 {profile.version or '--'}",
+                _channel_table_row(
+                    profile_row,
+                    ">" if index == selected else " ",
+                    name_width,
+                    provider_width,
+                    price_width,
+                    full_cost=full_cost,
+                    cost_width=cost_width,
+                    relative_width=relative_width,
+                ),
                 width - 4,
             ),
-            dim,
+            curses.A_REVERSE if index == selected else 0,
         )
+    if not profiles and table_capacity > 1:
+        _addstr(screen, table_start + 1, 2, "暂无可管理渠道，按 n 新建", dim)
+
+    selected_row = rows[selected + 1] if profiles else baseline
+    _addstr(
+        screen,
+        detail_row,
+        2,
+        "选中渠道详情" if selected_row.editable else "ChatGPT 中转基准详情",
+        dim,
+    )
+    detail_offset = 1
+    if not full_cost:
+        yuan, relative = _channel_cost_text(selected_row)
         _addstr(
             screen,
-            detail_row + 2,
+            detail_row + detail_offset,
             2,
-            clip_display(f"来源 {profile.source or '--'}", width - 4),
+            clip_display(f"当前 CNY {yuan}  ·  相对 ChatGPT {relative}", width - 4),
             dim,
         )
+        detail_offset += 1
+    profile = selected_row.profile
+    _addstr(
+        screen,
+        detail_row + detail_offset,
+        2,
+        clip_display(
+            f"计价 {profile.currency}/{profile.unit}  生效 {profile.effective_at or '--'}  版本 {profile.version or '--'}",
+            width - 4,
+        ),
+        dim,
+    )
+    _addstr(
+        screen,
+        detail_row + detail_offset + 1,
+        2,
+        clip_display(f"来源 {profile.source or '--'}", width - 4),
+        dim,
+    )
     message_row = (panel_top - 1) if calculator is not None else height - 2
     if state.error:
         _addstr(screen, message_row, 2, clip_display(state.error, width - 4), error_color)
+    elif state.calculation_error:
+        _addstr(screen, message_row, 2, clip_display(state.calculation_error, width - 4), error_color)
     elif state.message:
         _addstr(screen, message_row, 2, clip_display(state.message, width - 4), accent)
     _draw_calculator_panel(screen, calculator, colors, MAIN_PANEL_FLOOR)

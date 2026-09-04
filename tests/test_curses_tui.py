@@ -469,6 +469,72 @@ class _RecordingScreen:
 
 
 class CursesChannelViewTests(unittest.TestCase):
+    def test_wide_channel_table_includes_baseline_and_cost_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            screen = _RecordingScreen(height=24, width=140)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4), CalculatorSession())
+            output = "\n".join(screen.lines.values())
+            self.assertIn("当前 CNY", output)
+            self.assertIn("相对 ChatGPT", output)
+            self.assertIn("· ChatGPT 中转", output)
+            self.assertIn("4.50678902 元", output)
+            self.assertIn("3.88794668x", output)
+            self.assertNotIn("> ChatGPT 中转", output)
+
+    def test_narrow_channel_table_puts_cost_in_selected_details(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            screen = _RecordingScreen(height=24, width=80)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4), CalculatorSession())
+            output = "\n".join(screen.lines.values())
+            self.assertNotIn("当前 CNY", screen.lines[3])
+            self.assertIn("当前 CNY 17.5221554 元", output)
+            self.assertIn("相对 ChatGPT 3.88794668x", output)
+
+    def test_channel_table_uses_current_chatgpt_price_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            state.input_price = "10"
+            expected_yuan = state.calculate().comparison[0].yuan
+            screen = _RecordingScreen(height=24, width=140)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4), CalculatorSession())
+            self.assertIn("10", screen.lines[4])
+            self.assertIn(expected_yuan, screen.lines[4])
+
+    def test_channel_table_keeps_baseline_when_no_editable_channels_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            state.settings = replace(state.settings, comparison_profiles=())
+            screen = _RecordingScreen(height=24, width=140)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4), CalculatorSession())
+            output = "\n".join(screen.lines.values())
+            self.assertIn("· ChatGPT 中转", output)
+            self.assertIn("暂无可管理渠道，按 n 新建", output)
+
+    def test_channel_table_reports_invalid_main_values_without_crashing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = CursesTuiState.from_document(
+                load_settings_document(Path(directory) / "settings.toml")
+            )
+            state.value = "-1"
+            state.input_price = "10"
+            screen = _RecordingScreen(height=24, width=140)
+            _draw_channels(screen, state, 0, (1, 2, 3, 4), CalculatorSession())
+            output = "\n".join(screen.lines.values())
+            self.assertIn("不能小于 0", output)
+            self.assertIn("相对 ChatGPT", output)
+            self.assertIn("10", screen.lines[4])
+            self.assertIn("--", screen.lines[4])
+
     def test_small_channel_window_shows_size_warning(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = CursesTuiState.from_document(
